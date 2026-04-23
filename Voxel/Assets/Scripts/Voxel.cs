@@ -37,10 +37,4 @@ namespace VoxelEngine
         public const int ChunkSize = 1 << 4;
     }
 
-    public struct ChunkMeshInput
-    {
-        public BlockType[] Blocks;
-        public int Size;
-    }
-
 }
