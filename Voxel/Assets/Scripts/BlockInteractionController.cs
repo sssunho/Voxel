@@ -26,7 +26,11 @@ namespace VoxelEngine
 
         void Start()
         {
-            _worldBehaviour = FindObjectOfType<VoxelWorldBehaviour>();
+            if (_worldBehaviour == null)
+            {
+                _worldBehaviour = FindObjectOfType<VoxelWorldBehaviour>();
+            }
+
             if (_worldBehaviour)
             {
                 _world = _worldBehaviour.World;
@@ -94,6 +98,11 @@ namespace VoxelEngine
 
         void OnLeftMouseButtonDown()
         {
+            if (_world == null)
+            {
+                return;
+            }
+
             if (TryGetRayHitOnMousePosition(Input.mousePosition, out RaycastHit hit))
             {
                 Vector3 modifiedPos = hit.point + 0.001f * hit.normal;
@@ -109,6 +118,11 @@ namespace VoxelEngine
 
         void OnLeftMouseButton()
         {
+            if (_world == null)
+            {
+                return;
+            }
+
             if (_isPlacingBlock == false)
             {
                 return;

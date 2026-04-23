@@ -103,24 +103,6 @@ namespace VoxelEngine
 
         static readonly int[] FaceTriangles = { 0, 1, 2, 0, 2, 3 };
 
-        public static void AddFace(Direction direction,
-                            Vector3 position,
-                            List<Vector3> vertices,
-                            List<int> triangles)
-        {
-            int startIndex = vertices.Count;
-
-            for (int i = 0; i < 4; i++)
-            {
-                vertices.Add(position + FaceVertices[(int)direction, i]);
-            }
-
-            for (int i = 0; i < 6; i++)
-            {
-                triangles.Add(startIndex + FaceTriangles[i]);
-            }
-        }
-
         public static void AddQuad(Axis normal, Axis u, Axis v, bool isNegativeNormal, Vector3 position, int width, int height, List<Vector3> vertices, List<int> triangles, List<Vector2> uvs, List<Vector2> uv2s, BlockType type)
         {
             int startIndex = vertices.Count;
@@ -200,9 +182,9 @@ namespace VoxelEngine
             }
         }
 
-        public static Mesh BuildMesh(VoxelWorld world, Vector2Int chunkCoord, Chunk chunk)
+        public static Mesh BuildMesh(VoxelWorld world, Vector3Int chunkCoord)
         {
-            if (world == null || chunk == null)
+            if (world == null)
             {
                 return null;
             }
@@ -214,7 +196,7 @@ namespace VoxelEngine
 
             foreach (PlaneDesc desc in PlaneDescs)
             {
-                GreedyMeshPlane(world, chunkCoord, chunk, desc, vertices, triangles, uvs, uv2s);
+                GreedyMeshPlane(world, chunkCoord, desc, vertices, triangles, uvs, uv2s);
             }
 
             Mesh mesh = new Mesh();
@@ -228,11 +210,11 @@ namespace VoxelEngine
             return mesh;
         }
 
-        static void GreedyMeshPlane(VoxelWorld world, Vector2Int chunkCoord, Chunk chunk, PlaneDesc desc, List<Vector3> vertices, List<int> triangles, List<Vector2> uvs, List<Vector2> uv2s)
+        static void GreedyMeshPlane(VoxelWorld world, Vector3Int chunkCoord, PlaneDesc desc, List<Vector3> vertices, List<int> triangles, List<Vector2> uvs, List<Vector2> uv2s)
         {
             Vector3Int chunkOrigin = new Vector3Int(chunkCoord.x * VoxelStatics.ChunkSize,
-                                                    0,
-                                                    chunkCoord.y * VoxelStatics.ChunkSize);
+                                                    chunkCoord.y * VoxelStatics.ChunkSize,
+                                                    chunkCoord.z * VoxelStatics.ChunkSize);
             Direction normalDirection = GetDirectionFromFaceNormal(desc.Normal, desc.IsNegative);
 
             for (int n = 0; n < VoxelStatics.ChunkSize; n++)
@@ -244,13 +226,12 @@ namespace VoxelEngine
                     for (int v = 0; v < VoxelStatics.ChunkSize; v++)
                     {
                         Vector3Int localPos = UVNtoXYZ(new Vector3Int(u, v, n), desc.U, desc.V, desc.Normal);
+                        Vector3Int worldPos = chunkOrigin + localPos;
 
-                        if (!chunk.IsSolid(localPos))
+                        if (!world.IsSolid(worldPos))
                         {
                             continue;
                         }
-
-                        Vector3Int worldPos = chunkOrigin + localPos;
 
                         if (!world.IsSolid(worldPos + Offsets[(int)normalDirection]))
                         {
@@ -270,7 +251,8 @@ namespace VoxelEngine
 
                         Vector3Int uvn = new Vector3Int(u, v, n);
                         Vector3Int localPos = UVNtoXYZ(uvn, desc.U, desc.V, desc.Normal);
-                        Voxel block = chunk.GetBlock(localPos);
+                        Vector3Int worldPos = chunkOrigin + localPos;
+                        Voxel block = world.GetBlock(worldPos);
                         BlockType type = block.Type;
 
                         int width = 1;
@@ -279,8 +261,9 @@ namespace VoxelEngine
                         {
                             Vector3Int nextuvn = new Vector3Int(u + width, v, n);
                             Vector3Int nextLocalPos = UVNtoXYZ(nextuvn, desc.U, desc.V, desc.Normal);
+                            Vector3Int nextWorldPos = chunkOrigin + nextLocalPos;
 
-                            if (chunk.GetBlock(nextLocalPos).Type != type)
+                            if (world.GetBlock(nextWorldPos).Type != type)
                             {
                                 break;
                             }
@@ -296,7 +279,8 @@ namespace VoxelEngine
                             {
                                 Vector3Int nextuvn = new Vector3Int(i, v + height, n);
                                 Vector3Int nextLocalPos = UVNtoXYZ(nextuvn, desc.U, desc.V, desc.Normal);
-                                if (!mask[i, v + height] || chunk.GetBlock(nextLocalPos).Type != type)
+                                Vector3Int nextWorldPos = chunkOrigin + nextLocalPos;
+                                if (!mask[i, v + height] || world.GetBlock(nextWorldPos).Type != type)
                                 {
                                     canExpand = false;
                                     break;
@@ -440,12 +424,11 @@ namespace VoxelEngine
         [SerializeField] Material _material;
 
         VoxelWorld _world;
-        Vector2Int _chunkCoord;
+        Vector3Int _chunkCoord;
         MeshFilter _meshFilter;
         MeshRenderer _meshRenderer;
         MeshCollider _meshCollider;
         Mesh _mesh;
-        Chunk _chunk;
 
         void Awake()
         {
@@ -468,22 +451,8 @@ namespace VoxelEngine
             }
         }
 
-        void LateUpdate()
+        public void Initialize(VoxelWorld world, Vector3Int chunkCoord)
         {
-            if (_chunk == null)
-            {
-                return;
-            }
-
-            if (_chunk.IsDirty)
-            {
-                RebuildMesh();
-            }
-        }
-
-        public void Initialize(VoxelWorld world, Vector2Int chunkCoord, Chunk chunk)
-        {
-            _chunk = chunk;
             _chunkCoord = chunkCoord;
             _world = world;
 
@@ -506,18 +475,15 @@ namespace VoxelEngine
                 _mesh = null;
             }
 
-            if (_world == null || _chunk == null)
+            if (_world == null)
             {
                 return;
             }
 
-            _mesh = MeshBuilder.BuildMesh(_world, _chunkCoord, _chunk);
+            _mesh = MeshBuilder.BuildMesh(_world, _chunkCoord);
             _mesh.name = $"ChunkMesh_{gameObject.name}";
             _meshFilter.sharedMesh = _mesh;
-
             _meshCollider.sharedMesh = _mesh;
-
-            _chunk.ClearDirty();
 
             Debug.Log($"Rebuild chunk mesh : {gameObject.name}\n vertices : {_mesh.vertices.Length} \n triangles : {_mesh.triangles.Length}");
         }

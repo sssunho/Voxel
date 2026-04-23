@@ -1,21 +1,81 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 namespace VoxelEngine
 {
     public class VoxelWorld
     {
-        readonly Dictionary<Vector2Int, Chunk> _chunks = new();
+        class Chunk
+        {
+            readonly Voxel[,,] _blocks = new Voxel[VoxelStatics.ChunkSize, VoxelStatics.ChunkSize, VoxelStatics.ChunkSize];
 
-        public IReadOnlyDictionary<Vector2Int, Chunk> Chunks => _chunks;
+            public bool IsSolid(Vector3Int pos)
+            {
+                return IsSolid(pos.x, pos.y, pos.z);
+            }
 
-        public bool TryGetChunk(Vector2Int pos, out Chunk chunk)
+            public bool IsSolid(int x, int y, int z)
+            {
+                if (x < 0 || y < 0 || z < 0 ||
+                    x >= VoxelStatics.ChunkSize || y >= VoxelStatics.ChunkSize || z >= VoxelStatics.ChunkSize)
+                {
+                    return false;
+                }
+
+                return _blocks[x, y, z].IsSolid;
+            }
+
+            public bool SetBlock(int x, int y, int z, BlockType type)
+            {
+                if (x < 0 || y < 0 || z < 0 ||
+                    x >= VoxelStatics.ChunkSize || y >= VoxelStatics.ChunkSize || z >= VoxelStatics.ChunkSize)
+                {
+                    return false;
+                }
+
+                if (_blocks[x, y, z].Type != type)
+                {
+                    _blocks[x, y, z].Type = type;
+                    return true;
+                }
+
+                return false;
+            }
+
+            public Voxel GetBlock(int x, int y, int z)
+            {
+                if (x < 0 || y < 0 || z < 0 ||
+                    x >= VoxelStatics.ChunkSize || y >= VoxelStatics.ChunkSize || z >= VoxelStatics.ChunkSize)
+                {
+                    return default;
+                }
+
+                return _blocks[x, y, z];
+            }
+
+            public Voxel GetBlock(Vector3Int pos)
+            {
+                return GetBlock(pos.x, pos.y, pos.z);
+            }
+
+            public BlockType GetBlockType(int x, int y, int z)
+            {
+                return GetBlock(x, y, z).Type;
+            }
+
+        }
+
+        readonly Dictionary<Vector3Int, Chunk> _chunks = new();
+        readonly HashSet<Vector3Int> _dirtyChunks = new();
+
+        bool TryGetChunk(Vector3Int pos, out Chunk chunk)
         {
             return _chunks.TryGetValue(pos, out chunk);
         }
 
-        public Chunk GetOrCreateChunk(Vector2Int pos)
+        Chunk GetOrCreateChunk(Vector3Int pos)
         {
             if (TryGetChunk(pos, out Chunk chunk))
             {
@@ -24,7 +84,20 @@ namespace VoxelEngine
 
             chunk = new Chunk();
             _chunks.Add(pos, chunk);
+            _dirtyChunks.Add(pos);
             return chunk;
+        }
+
+        public void ConsumeDirtyChunks(List<Vector3Int> outList)
+        {
+            if (outList == null)
+            {
+                return;
+            }
+
+            outList.Clear();
+            outList.AddRange(_dirtyChunks);
+            _dirtyChunks.Clear();
         }
 
         public bool IsSolid(Vector3Int worldPos)
@@ -34,7 +107,7 @@ namespace VoxelEngine
 
         public bool IsSolid(int x, int y, int z)
         {
-            Vector2Int chunkCoord = WorldToChunkCoord(x, z);
+            Vector3Int chunkCoord = WorldToChunkCoord(x, y, z);
 
             if (TryGetChunk(chunkCoord, out Chunk chunk))
             {
@@ -47,7 +120,7 @@ namespace VoxelEngine
 
         public void SetBlock(int x, int y, int z, BlockType type)
         {
-            Vector2Int chunkPos = WorldToChunkCoord(x, z);
+            Vector3Int chunkPos = WorldToChunkCoord(x, y, z);
             Vector3Int localPos = WorldToLocalCoord(x, y, z);
 
             Chunk chunk = GetOrCreateChunk(chunkPos);
@@ -55,31 +128,43 @@ namespace VoxelEngine
 
             if (changed)
             {
+                _dirtyChunks.Add(chunkPos);
+
                 if (localPos.x == 0)
                 {
-                    SetChunkDirtyIfExist(new Vector2Int(chunkPos.x - 1, chunkPos.y));
+                    SetChunkDirtyIfExist(new Vector3Int(chunkPos.x - 1, chunkPos.y, chunkPos.z));
                 }
 
                 if (localPos.x == VoxelStatics.ChunkSize - 1)
                 {
-                    SetChunkDirtyIfExist(new Vector2Int(chunkPos.x + 1, chunkPos.y));
+                    SetChunkDirtyIfExist(new Vector3Int(chunkPos.x + 1, chunkPos.y, chunkPos.z));
+                }
+
+                if (localPos.y == 0)
+                {
+                    SetChunkDirtyIfExist(new Vector3Int(chunkPos.x, chunkPos.y - 1, chunkPos.z));
+                }
+
+                if (localPos.y == VoxelStatics.ChunkSize - 1)
+                {
+                    SetChunkDirtyIfExist(new Vector3Int(chunkPos.x, chunkPos.y + 1, chunkPos.z));
                 }
 
                 if (localPos.z == 0)
                 {
-                    SetChunkDirtyIfExist(new Vector2Int(chunkPos.x, chunkPos.y - 1));
+                    SetChunkDirtyIfExist(new Vector3Int(chunkPos.x, chunkPos.y, chunkPos.z - 1));
                 }
 
                 if (localPos.z == VoxelStatics.ChunkSize - 1)
                 {
-                    SetChunkDirtyIfExist(new Vector2Int(chunkPos.x, chunkPos.y + 1));
+                    SetChunkDirtyIfExist(new Vector3Int(chunkPos.x, chunkPos.y, chunkPos.z + 1));
                 }
             }
         }
 
         public Voxel GetBlock(int x, int y, int z)
         {
-            Vector2Int chunkPos = WorldToChunkCoord(x, z);
+            Vector3Int chunkPos = WorldToChunkCoord(x, y, z);
 
             if (TryGetChunk(chunkPos, out Chunk chunk))
             {
@@ -88,6 +173,11 @@ namespace VoxelEngine
             }
 
             return default;
+        }
+
+        public Voxel GetBlock(Vector3Int pos)
+        {
+            return GetBlock(pos.x, pos.y, pos.z);
         }
 
         public BlockType GetBlockType(Vector3Int pos)
@@ -100,11 +190,11 @@ namespace VoxelEngine
             return GetBlock(x, y, z).Type;
         }
 
-        void SetChunkDirtyIfExist(Vector2Int chunkPos)
+        void SetChunkDirtyIfExist(Vector3Int chunkPos)
         {
             if (TryGetChunk(chunkPos, out Chunk chunk))
             {
-                chunk.SetDirty();
+                _dirtyChunks.Add(chunkPos);
             }
         }
 
@@ -113,15 +203,34 @@ namespace VoxelEngine
             SetBlock(pos.x, pos.y , pos.z, type);
         }
 
-        public static Vector2Int WorldToChunkCoord(Vector3 pos)
+        public void ClearBlocks()
         {
-            Vector3Int voxelPos = WorldToVoxelCoord(pos);
-            return WorldToChunkCoord(voxelPos.x, voxelPos.z);
+            foreach (var kv in _chunks)
+            {
+                for (int i = 0; i < VoxelStatics.ChunkSize; i++)
+                {
+                    for (int j = 0; j < VoxelStatics.ChunkSize; j++)
+                    {
+                        for (int k = 0; k < VoxelStatics.ChunkSize; k++)
+                        {
+                            kv.Value.SetBlock(i, j, k, BlockType.Air);
+                        }
+                    }
+                }
+
+                _dirtyChunks.Add(kv.Key);
+            }
         }
 
-        public static Vector2Int WorldToChunkCoord(int x, int z)
+        public static Vector3Int WorldToChunkCoord(Vector3 pos)
         {
-            return new Vector2Int(Mathf.FloorToInt((float)x / VoxelStatics.ChunkSize), Mathf.FloorToInt((float)z / VoxelStatics.ChunkSize));
+            Vector3Int voxelPos = WorldToVoxelCoord(pos);
+            return WorldToChunkCoord(voxelPos.x, voxelPos.y, voxelPos.z);
+        }
+
+        public static Vector3Int WorldToChunkCoord(int x, int y, int z)
+        {
+            return new Vector3Int(Mathf.FloorToInt((float)x / VoxelStatics.ChunkSize), Mathf.FloorToInt((float)y / VoxelStatics.ChunkSize),  Mathf.FloorToInt((float)z / VoxelStatics.ChunkSize));
         }
 
         public static Vector3Int WorldToLocalCoord(Vector3 pos)
@@ -132,12 +241,12 @@ namespace VoxelEngine
 
         public static Vector3Int WorldToLocalCoord(int x, int y, int z)
         {
-            return new Vector3Int(Mod(x , VoxelStatics.ChunkSize), y, Mod(z, VoxelStatics.ChunkSize));
+            return new Vector3Int(Mod(x , VoxelStatics.ChunkSize), Mod(y, VoxelStatics.ChunkSize), Mod(z, VoxelStatics.ChunkSize));
         }
 
-        public static Vector3 ChunkToWorldOrigin(Vector2Int pos)
+        public static Vector3 ChunkToWorldOrigin(Vector3Int pos)
         {
-            return new Vector3(pos.x * VoxelStatics.ChunkSize, 0, pos.y *VoxelStatics.ChunkSize);
+            return new Vector3(pos.x * VoxelStatics.ChunkSize, pos.y * VoxelStatics.ChunkSize, pos.z * VoxelStatics.ChunkSize);
         }
 
         public static Vector3Int WorldToVoxelCoord(Vector3 pos)
