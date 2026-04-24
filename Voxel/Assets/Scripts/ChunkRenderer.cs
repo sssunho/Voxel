@@ -1,26 +1,31 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEditor.Experimental.GraphView;
-
-#if UNITY_EDITOR
 using Unity.Profiling;
-#endif
 
 namespace VoxelEngine
 {
+    public struct MeshBuildData
+    {
+        public List<Vector3> Vertices;
+        public List<int> Triangles;
+        public List<Vector2> UVs;
+        public List<Vector2> UV2s;
+
+        public MeshBuildData(int vertexCapacity, int triangleCapacity)
+        {
+            Vertices = new List<Vector3>(vertexCapacity);
+            Triangles = new List<int>(triangleCapacity);
+            UVs = new List<Vector2>(vertexCapacity);
+            UV2s = new List<Vector2>(vertexCapacity);
+        }
+    }
+
     public static class MeshBuilder
     {
-#if UNITY_EDITOR
-
         static readonly ProfilerMarker BuildMeshMarker = new("MeshBuilder.BuildMesh");
         static readonly ProfilerMarker GreedyMeshPlaneMarker = new("MeshBuilder.GreedyMeshPlane");
-        static readonly ProfilerMarker MeshUploadMarker = new("MeshBuilder.MeshUpload");
-        static readonly ProfilerMarker RecalculateMarker = new("MeshBuilder.Recalculate");
         static readonly ProfilerMarker AddQuadMarkder = new("MeshBuilder.AddQuad");
-
-#endif
-
 
         static readonly Vector3Int[] Offsets = new Vector3Int[]
         {
@@ -119,11 +124,13 @@ namespace VoxelEngine
 
         static readonly int[] FaceTriangles = { 0, 1, 2, 0, 2, 3 };
 
+        static readonly int DefaultQuadCapacity = 2048;
+
         static bool[] _greedyMeshingMaskBuffer = new bool[VoxelStatics.ChunkSize * VoxelStatics.ChunkSize];
 
-        public static void AddQuad(Axis normal, Axis u, Axis v, bool isNegativeNormal, Vector3 position, int width, int height, List<Vector3> vertices, List<int> triangles, List<Vector2> uvs, List<Vector2> uv2s, BlockType type)
+        public static void AddQuad(Axis normal, Axis u, Axis v, bool isNegativeNormal, Vector3 position, int width, int height, MeshBuildData meshBuildData, BlockType type)
         {
-            int startIndex = vertices.Count;
+            int startIndex = meshBuildData.Vertices.Count;
 
             Direction normalDirection = GetDirectionFromFaceNormal(normal, isNegativeNormal);
             Vector2 tile = GetBlockTileCoord(type);
@@ -158,7 +165,7 @@ namespace VoxelEngine
                     vertex.z *= height;
                 }
 
-                vertices.Add(position + vertex);
+                meshBuildData.Vertices.Add(position + vertex);
 
                 float uvU = 0f;
                 float uvV = 0f;
@@ -189,61 +196,40 @@ namespace VoxelEngine
                     uvV = vertex.z;
                 }
 
-                uvs.Add(new Vector2(uvU, uvV));
+                meshBuildData.UVs.Add(new Vector2(uvU, uvV));
 
-                uv2s.Add(tile);
+                meshBuildData.UV2s.Add(tile);
             }
 
             for (int i = 0; i < 6; i++)
             {
-                triangles.Add(startIndex + FaceTriangles[i]);
+                meshBuildData.Triangles.Add(startIndex + FaceTriangles[i]);
             }
         }
 
         
 
-        public static Mesh BuildMesh(ChunkMeshInput meshInput)
+        public static MeshBuildData BuildMeshData(ChunkMeshInput meshInput)
         {
             using (BuildMeshMarker.Auto())
             using (PerformanceMeasure.Measure($"MeshBuilder.BuildMesh.Total"))
             {
-                List<Vector3> vertices = new List<Vector3>();
-                List<int> triangles = new List<int>();
-                List<Vector2> uvs = new List<Vector2>();
-                List<Vector2> uv2s = new List<Vector2>();
+                MeshBuildData meshBuildData = new MeshBuildData(DefaultQuadCapacity * 4, DefaultQuadCapacity * 6);
 
                 foreach (PlaneDesc desc in PlaneDescs)
                 {
                     using (GreedyMeshPlaneMarker.Auto())
                     using (PerformanceMeasure.Measure($"MeshBuilder.BuildMesh.GreedyMeshPlane"))
                     {
-                        GreedyMeshPlane(meshInput, desc, vertices, triangles, uvs, uv2s);
+                        GreedyMeshPlane(meshInput, desc, meshBuildData);
                     }
                 }
 
-                Mesh mesh = new Mesh();
-
-                using (MeshUploadMarker.Auto())
-                using (PerformanceMeasure.Measure("MeshBuilder.MeshDataAssign"))
-                {
-                    mesh.SetVertices(vertices);
-                    mesh.SetTriangles(triangles, 0);
-                    mesh.uv = uvs.ToArray();
-                    mesh.uv2 = uv2s.ToArray();
-                }
-
-                using (RecalculateMarker.Auto())
-                using (PerformanceMeasure.Measure("MeshBuilder.Recalculate"))
-                {
-                    mesh.RecalculateNormals();
-                    mesh.RecalculateBounds();
-                }
-
-                return mesh;
+                return meshBuildData;
             }
         }
 
-        static void GreedyMeshPlane(ChunkMeshInput meshInput, PlaneDesc desc, List<Vector3> vertices, List<int> triangles, List<Vector2> uvs, List<Vector2> uv2s)
+        static void GreedyMeshPlane(ChunkMeshInput meshInput, PlaneDesc desc, MeshBuildData meshBuildData)
         {
             Direction normalDirection = GetDirectionFromFaceNormal(desc.Normal, desc.IsNegative);
             int size = meshInput.Size;
@@ -328,7 +314,7 @@ namespace VoxelEngine
 
                         using (AddQuadMarkder.Auto())
                         {
-                            AddQuad(desc.Normal, desc.U, desc.V, desc.IsNegative, localPos, width, height, vertices, triangles, uvs, uv2s, type);
+                            AddQuad(desc.Normal, desc.U, desc.V, desc.IsNegative, localPos, width, height, meshBuildData, type);
                         }
 
                         for (int du = u; du < u + width; du++)
@@ -464,8 +450,12 @@ namespace VoxelEngine
 
         static readonly ProfilerMarker RebuildMeshMarker = new("ChunkRenderer.RebuildMesh");
         static readonly ProfilerMarker DestroyOldMeshMarker = new("ChunkRenderer.DestroyOldMesh");
-        static readonly ProfilerMarker BuildMeshMarker = new("ChunkRenderer.BuildMesh");
+        static readonly ProfilerMarker CreateMeshInputData = new("ChunkRenderer.CreateMeshInput");
+        static readonly ProfilerMarker BuildMeshDataMarker = new("ChunkRenderer.BuildMesh");
+        static readonly ProfilerMarker CreateUnityMeshMarker = new("ChunkRenderer.CreateUnityMesh");
         static readonly ProfilerMarker ApplyMeshMarker = new("ChunkRenderer.ApplyMesh");
+        static readonly ProfilerMarker MeshUploadMarker = new("MeshBuilder.MeshUpload");
+        static readonly ProfilerMarker RecalculateMarker = new("MeshBuilder.Recalculate");
 
         void Awake()
         {
@@ -524,10 +514,25 @@ namespace VoxelEngine
                     return;
                 }
 
-                using (BuildMeshMarker.Auto())
-                using (PerformanceMeasure.Measure("Chunk.RebuildMesh.BuildMesh"))
+                ChunkMeshInput input;
+                MeshBuildData meshBuildData;
+
+                using (CreateMeshInputData.Auto())
+                using (PerformanceMeasure.Measure("Chunk.RebuildMesh.CreateMeshInput"))
                 {
-                    _mesh = MeshBuilder.BuildMesh(_world.CreateMeshInput(_chunkCoord));
+                    input = _world.CreateMeshInput(_chunkCoord);
+                }
+
+                using (BuildMeshDataMarker.Auto())
+                using (PerformanceMeasure.Measure("Chunk.RebuildMesh.BuildMeshData"))
+                {
+                    meshBuildData = MeshBuilder.BuildMeshData(input);
+                }
+
+                using (CreateUnityMeshMarker.Auto())
+                using (PerformanceMeasure.Measure("Chunk.RebuildMesh.CreateUnityMesh"))
+                {
+                    _mesh = CreateMesh(meshBuildData);
                 }
 
                 using (ApplyMeshMarker.Auto())
@@ -541,6 +546,29 @@ namespace VoxelEngine
                 // 아래 로그는 가비지가 꽤 많이 생긴다. 필요할 때만 풀자
                 //Debug.Log($"Rebuild chunk mesh : {gameObject.name}\n vertices : {_mesh.vertices.Length} \n triangles : {_mesh.triangles.Length}");
             }
+        }
+
+        Mesh CreateMesh(MeshBuildData meshBuildData)
+        {
+            Mesh mesh = new Mesh();
+
+            using (MeshUploadMarker.Auto())
+            using (PerformanceMeasure.Measure("MeshBuilder.MeshDataAssign"))
+            {
+                mesh.SetVertices(meshBuildData.Vertices);
+                mesh.SetTriangles(meshBuildData.Triangles, 0);
+                mesh.SetUVs(0, meshBuildData.UVs);
+                mesh.SetUVs(1, meshBuildData.UV2s);
+            }
+
+            using (RecalculateMarker.Auto())
+            using (PerformanceMeasure.Measure("MeshBuilder.Recalculate"))
+            {
+                mesh.RecalculateNormals();
+                mesh.RecalculateBounds();
+            }
+
+            return mesh;
         }
 
     }

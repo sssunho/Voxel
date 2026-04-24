@@ -33,6 +33,8 @@ namespace VoxelEngine
         {
             if (_world != null)
             {
+                PerformanceMeasure.Clear();
+
                 List<Vector3Int> dirtyChunks = new();
                 _world.ConsumeDirtyChunks(dirtyChunks);
 

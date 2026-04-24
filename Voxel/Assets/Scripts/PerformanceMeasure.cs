@@ -97,5 +97,10 @@ namespace VoxelEngine
             }
         }
 
+        public static void Clear()
+        {
+            _stats.Clear();
+        }
+
     }
 }

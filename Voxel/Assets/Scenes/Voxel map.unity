@@ -244,7 +244,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   _mapType: 2
-  _mapSize: 128
+  _mapSize: 256
   _worldBehaviour: {fileID: 1185501880}
   _perlinNoiseHeight: 64
   _perlinNoiseScale: 0.02
