@@ -1,11 +1,27 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEditor.Experimental.GraphView;
+
+#if UNITY_EDITOR
+using Unity.Profiling;
+#endif
 
 namespace VoxelEngine
 {
     public static class MeshBuilder
     {
+#if UNITY_EDITOR
+
+        static readonly ProfilerMarker BuildMeshMarker = new("MeshBuilder.BuildMesh");
+        static readonly ProfilerMarker GreedyMeshPlaneMarker = new("MeshBuilder.GreedyMeshPlane");
+        static readonly ProfilerMarker MeshUploadMarker = new("MeshBuilder.MeshUpload");
+        static readonly ProfilerMarker RecalculateMarker = new("MeshBuilder.Recalculate");
+        static readonly ProfilerMarker AddQuadMarkder = new("MeshBuilder.AddQuad");
+
+#endif
+
+
         static readonly Vector3Int[] Offsets = new Vector3Int[]
         {
             new Vector3Int(0, 0, 1), // foward
@@ -103,6 +119,8 @@ namespace VoxelEngine
 
         static readonly int[] FaceTriangles = { 0, 1, 2, 0, 2, 3 };
 
+        static bool[] _greedyMeshingMaskBuffer = new bool[VoxelStatics.ChunkSize * VoxelStatics.ChunkSize];
+
         public static void AddQuad(Axis normal, Axis u, Axis v, bool isNegativeNormal, Vector3 position, int width, int height, List<Vector3> vertices, List<int> triangles, List<Vector2> uvs, List<Vector2> uv2s, BlockType type)
         {
             int startIndex = vertices.Count;
@@ -182,88 +200,100 @@ namespace VoxelEngine
             }
         }
 
-        public static Mesh BuildMesh(VoxelWorld world, Vector3Int chunkCoord)
+        
+
+        public static Mesh BuildMesh(ChunkMeshInput meshInput)
         {
-            if (world == null)
+            using (BuildMeshMarker.Auto())
+            using (PerformanceMeasure.Measure($"MeshBuilder.BuildMesh.Total"))
             {
-                return null;
+                List<Vector3> vertices = new List<Vector3>();
+                List<int> triangles = new List<int>();
+                List<Vector2> uvs = new List<Vector2>();
+                List<Vector2> uv2s = new List<Vector2>();
+
+                foreach (PlaneDesc desc in PlaneDescs)
+                {
+                    using (GreedyMeshPlaneMarker.Auto())
+                    using (PerformanceMeasure.Measure($"MeshBuilder.BuildMesh.GreedyMeshPlane"))
+                    {
+                        GreedyMeshPlane(meshInput, desc, vertices, triangles, uvs, uv2s);
+                    }
+                }
+
+                Mesh mesh = new Mesh();
+
+                using (MeshUploadMarker.Auto())
+                using (PerformanceMeasure.Measure("MeshBuilder.MeshDataAssign"))
+                {
+                    mesh.SetVertices(vertices);
+                    mesh.SetTriangles(triangles, 0);
+                    mesh.uv = uvs.ToArray();
+                    mesh.uv2 = uv2s.ToArray();
+                }
+
+                using (RecalculateMarker.Auto())
+                using (PerformanceMeasure.Measure("MeshBuilder.Recalculate"))
+                {
+                    mesh.RecalculateNormals();
+                    mesh.RecalculateBounds();
+                }
+
+                return mesh;
             }
-
-            List<Vector3> vertices = new List<Vector3>();
-            List<int> triangles = new List<int>();
-            List<Vector2> uvs = new List<Vector2>();
-            List<Vector2> uv2s = new List<Vector2>();
-
-            foreach (PlaneDesc desc in PlaneDescs)
-            {
-                GreedyMeshPlane(world, chunkCoord, desc, vertices, triangles, uvs, uv2s);
-            }
-
-            Mesh mesh = new Mesh();
-            mesh.vertices = vertices.ToArray();
-            mesh.triangles = triangles.ToArray();
-            mesh.uv = uvs.ToArray();
-            mesh.uv2 = uv2s.ToArray();
-            mesh.RecalculateNormals();
-            mesh.RecalculateBounds();
-
-            return mesh;
         }
 
-        static void GreedyMeshPlane(VoxelWorld world, Vector3Int chunkCoord, PlaneDesc desc, List<Vector3> vertices, List<int> triangles, List<Vector2> uvs, List<Vector2> uv2s)
+        static void GreedyMeshPlane(ChunkMeshInput meshInput, PlaneDesc desc, List<Vector3> vertices, List<int> triangles, List<Vector2> uvs, List<Vector2> uv2s)
         {
-            Vector3Int chunkOrigin = new Vector3Int(chunkCoord.x * VoxelStatics.ChunkSize,
-                                                    chunkCoord.y * VoxelStatics.ChunkSize,
-                                                    chunkCoord.z * VoxelStatics.ChunkSize);
             Direction normalDirection = GetDirectionFromFaceNormal(desc.Normal, desc.IsNegative);
+            int size = meshInput.Size;
 
-            for (int n = 0; n < VoxelStatics.ChunkSize; n++)
+            for (int i = 0; i < _greedyMeshingMaskBuffer.Length; i++)
             {
-                bool[,] mask = new bool[VoxelStatics.ChunkSize, VoxelStatics.ChunkSize];
+                _greedyMeshingMaskBuffer[i] = false;
+            }
 
-                for (int u = 0; u < VoxelStatics.ChunkSize; u++)
+            for (int n = 0; n < size; n++)
+            {
+                for (int u = 0; u < size; u++)
                 {
-                    for (int v = 0; v < VoxelStatics.ChunkSize; v++)
+                    for (int v = 0; v < size; v++)
                     {
                         Vector3Int localPos = UVNtoXYZ(new Vector3Int(u, v, n), desc.U, desc.V, desc.Normal);
-                        Vector3Int worldPos = chunkOrigin + localPos;
 
-                        if (!world.IsSolid(worldPos))
+                        if (!meshInput.IsSolid(localPos))
                         {
                             continue;
                         }
 
-                        if (!world.IsSolid(worldPos + Offsets[(int)normalDirection]))
+                        if (!meshInput.IsSolid(localPos + Offsets[(int)normalDirection]))
                         {
-                            mask[u, v] = true;
+                            _greedyMeshingMaskBuffer[u + v * size] = true;
                         }
                     }
                 }
 
-                for (int u = 0; u < VoxelStatics.ChunkSize; u++)
+                for (int u = 0; u < size; u++)
                 {
-                    for (int v = 0; v < VoxelStatics.ChunkSize; v++)
+                    for (int v = 0; v < size; v++)
                     {
-                        if (!mask[u, v])
+                        if (!_greedyMeshingMaskBuffer[u + v * size])
                         {
                             continue;
                         }
 
                         Vector3Int uvn = new Vector3Int(u, v, n);
                         Vector3Int localPos = UVNtoXYZ(uvn, desc.U, desc.V, desc.Normal);
-                        Vector3Int worldPos = chunkOrigin + localPos;
-                        Voxel block = world.GetBlock(worldPos);
-                        BlockType type = block.Type;
+                        BlockType type = meshInput.GetBlock(localPos);
 
                         int width = 1;
                         while (u + width < VoxelStatics.ChunkSize && 
-                            mask[u + width, v])
+                            _greedyMeshingMaskBuffer[u + width + v * size])
                         {
                             Vector3Int nextuvn = new Vector3Int(u + width, v, n);
                             Vector3Int nextLocalPos = UVNtoXYZ(nextuvn, desc.U, desc.V, desc.Normal);
-                            Vector3Int nextWorldPos = chunkOrigin + nextLocalPos;
-
-                            if (world.GetBlock(nextWorldPos).Type != type)
+                            
+                            if (meshInput.GetBlock(nextLocalPos) != type)
                             {
                                 break;
                             }
@@ -279,8 +309,7 @@ namespace VoxelEngine
                             {
                                 Vector3Int nextuvn = new Vector3Int(i, v + height, n);
                                 Vector3Int nextLocalPos = UVNtoXYZ(nextuvn, desc.U, desc.V, desc.Normal);
-                                Vector3Int nextWorldPos = chunkOrigin + nextLocalPos;
-                                if (!mask[i, v + height] || world.GetBlock(nextWorldPos).Type != type)
+                                if (!_greedyMeshingMaskBuffer[i + (v + height) * VoxelStatics.ChunkSize] || meshInput.GetBlock(nextLocalPos) != type)
                                 {
                                     canExpand = false;
                                     break;
@@ -297,13 +326,16 @@ namespace VoxelEngine
                             }
                         }
 
-                        AddQuad(desc.Normal, desc.U, desc.V, desc.IsNegative, localPos, width, height, vertices, triangles, uvs, uv2s, type);
+                        using (AddQuadMarkder.Auto())
+                        {
+                            AddQuad(desc.Normal, desc.U, desc.V, desc.IsNegative, localPos, width, height, vertices, triangles, uvs, uv2s, type);
+                        }
 
                         for (int du = u; du < u + width; du++)
                         {
                             for (int dv = v; dv < v + height; dv++)
                             {
-                                mask[du, dv] = false;
+                                _greedyMeshingMaskBuffer[du + dv * VoxelStatics.ChunkSize] = false;
                             }
                         }
 
@@ -430,6 +462,11 @@ namespace VoxelEngine
         MeshCollider _meshCollider;
         Mesh _mesh;
 
+        static readonly ProfilerMarker RebuildMeshMarker = new("ChunkRenderer.RebuildMesh");
+        static readonly ProfilerMarker DestroyOldMeshMarker = new("ChunkRenderer.DestroyOldMesh");
+        static readonly ProfilerMarker BuildMeshMarker = new("ChunkRenderer.BuildMesh");
+        static readonly ProfilerMarker ApplyMeshMarker = new("ChunkRenderer.ApplyMesh");
+
         void Awake()
         {
             _meshFilter = GetComponent<MeshFilter>();
@@ -461,31 +498,49 @@ namespace VoxelEngine
 
         public void RebuildMesh()
         {
-            Debug.Assert(_meshFilter != null);
-
-            if (_mesh)
+            using (RebuildMeshMarker.Auto())
+            using (PerformanceMeasure.Measure("Chunk.RebuildMesh.Total"))
             {
-                if (_meshCollider)
+                Debug.Assert(_meshFilter != null);
+
+                using (DestroyOldMeshMarker.Auto())
+                using (PerformanceMeasure.Measure("Chunk.RebuildMesh.DestroyOld"))
                 {
-                    _meshCollider.sharedMesh = null;
+                    if (_mesh)
+                    {
+                        if (_meshCollider)
+                        {
+                            _meshCollider.sharedMesh = null;
+                        }
+
+                        _meshFilter.sharedMesh = null;
+                        Destroy(_mesh);
+                        _mesh = null;
+                    }
                 }
 
-                _meshFilter.sharedMesh = null;
-                Destroy(_mesh);
-                _mesh = null;
+                if (_world == null)
+                {
+                    return;
+                }
+
+                using (BuildMeshMarker.Auto())
+                using (PerformanceMeasure.Measure("Chunk.RebuildMesh.BuildMesh"))
+                {
+                    _mesh = MeshBuilder.BuildMesh(_world.CreateMeshInput(_chunkCoord));
+                }
+
+                using (ApplyMeshMarker.Auto())
+                using (PerformanceMeasure.Measure("Chunk.RebuildMesh.ApplyMesh"))
+                {
+                    _mesh.name = $"ChunkMesh_{gameObject.name}";
+                    _meshFilter.sharedMesh = _mesh;
+                    _meshCollider.sharedMesh = _mesh;
+                }
+
+                // 아래 로그는 가비지가 꽤 많이 생긴다. 필요할 때만 풀자
+                //Debug.Log($"Rebuild chunk mesh : {gameObject.name}\n vertices : {_mesh.vertices.Length} \n triangles : {_mesh.triangles.Length}");
             }
-
-            if (_world == null)
-            {
-                return;
-            }
-
-            _mesh = MeshBuilder.BuildMesh(_world, _chunkCoord);
-            _mesh.name = $"ChunkMesh_{gameObject.name}";
-            _meshFilter.sharedMesh = _mesh;
-            _meshCollider.sharedMesh = _mesh;
-
-            Debug.Log($"Rebuild chunk mesh : {gameObject.name}\n vertices : {_mesh.vertices.Length} \n triangles : {_mesh.triangles.Length}");
         }
 
     }

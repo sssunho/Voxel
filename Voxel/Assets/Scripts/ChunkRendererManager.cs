@@ -36,8 +36,12 @@ namespace VoxelEngine
                 List<Vector3Int> dirtyChunks = new();
                 _world.ConsumeDirtyChunks(dirtyChunks);
 
+                bool isChange = false;
+
                 foreach (Vector3Int chunkCoord in dirtyChunks)
                 {
+                    isChange = true;
+
                     if (_renderers.TryGetValue(chunkCoord, out ChunkRenderer renderer))
                     {
                         renderer.RebuildMesh();
@@ -50,6 +54,11 @@ namespace VoxelEngine
                     newRenderer.Initialize(_world, chunkCoord);
 
                     _renderers.Add(chunkCoord, newRenderer);
+                }
+
+                if (isChange)
+                {
+                    PerformanceMeasure.LogSummary();
                 }
             }
         }

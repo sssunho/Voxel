@@ -47,9 +47,19 @@ namespace VoxelEngine
             return Blocks[idx];
         }
 
+        public BlockType GetBlock(Vector3Int pos)
+        {
+            return GetBlock(pos.x, pos.y, pos.z);
+        }
+
         public bool IsSolid(int x, int y, int z)
         {
             return GetBlock(x, y, z) != BlockType.Air;
+        }
+
+        public bool IsSolid(Vector3Int pos)
+        {
+            return IsSolid(pos.x, pos.y, pos.z);
         }
     }
 

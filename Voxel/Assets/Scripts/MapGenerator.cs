@@ -44,6 +44,17 @@ public class MapGenerator : MonoBehaviour
             _world = _worldBehaviour.World;
         }
 
+        StartCoroutine(StartDelayCoroutine());
+    }
+
+    IEnumerator StartDelayCoroutine()
+    {
+        yield return null;
+        yield return null;
+        yield return null;
+        yield return null;
+        yield return null;
+
         GenerateMap();
     }
 

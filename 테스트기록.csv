@@ -1,0 +1,35 @@
+"map generation(single block type, perlin)",,,,,
+,,,,,
+최초 측정,,,,,
+,,총 실행 시간(ms),총 GC Alloc(MB),Greedy meshing time(ms),Greedy meshing alloc(MB)
+,64,160.65 ,3.6 ,150.51 ,2.7 
+,128,684.32 ,17.6 ,643.91 ,13.0 
+,256,3078.32 ,65.2 ,2914.33 ,48.8 
+,,,,,
+,,,,,
+,,,,,
+Mask buffer 재활용 + MeshInput 도입,,,,,
+,,총 실행 시간(ms),총 GC Alloc(MB),Greedy meshing time(ms),Greedy meshing alloc(MB)
+,64,54.08 ,2.9 ,33.89 ,1.6 
+,128,187.57 ,13.6 ,126.64 ,8.0 
+,256,782.80 ,48.1 ,536.21 ,27.5 
+,,,,,
+결과,"MaskBuffer를 재활용 했을 땐 GC alloc은 줄었지만 (65 -> 48) 실행시간은 오히려 약간 증가했었음 (2900->3000). 버퍼를 클리어하는 과정에서 문제가 생긴거로 보임
+MeshInput을 도입했을 땐 실행시간이 크게 줄어듬 (2914->536, 약 6배).
+주요 이유는 world를 거치지 않고 block을 조회할 수 있어서라 생각들고 이로 인해 아래 효과가 생김
+1. 좌표변환, dictionary 조회, 함수 호출 체인 모두 제외됨
+2. ChunkMeshInput.Blocks는 BlockType[] 단일 배열 -> 캐시 친화적
+3. Voxel이 아닌 BlockType(byte형)을 읽음 -> 데이터가 작아지고 단순 비교 가능
+
+추가로 GC alloc 은 디버그용으로 만들어둔 log에서 12MB 정도 발생한걸로 확인(chunk 생성마다 log 찍음)",,,,
+,,,,,
+,,,,,
+,,,,,
+불필요한 Debug.Log 제거,,,,,
+,,총 실행 시간(ms),총 GC Alloc(MB),Greedy meshing time(ms),Greedy meshing alloc(MB)
+,64,48.16 ,2.1 ,35.76 ,1.6 
+,128,171.12 ,10.4 ,129.00 ,8.0 
+,256,718.65 ,36.7 ,549.83 ,27.5 
+,,,,,
+결과,"Debug.Log에서 스트링을 만들 때 꽤 많은 GC가 발생하는걸로 보여서 제거함. 총 시간은 큰 차이는 없지만 GC가 감소
+시간이 약간 증가한건 PerlinNoise로 만든 맵의 무작위성 때문에 약간의 오차로 보임",,,,
