@@ -493,59 +493,61 @@ namespace VoxelEngine
             {
                 Debug.Assert(_meshFilter != null);
 
-                using (DestroyOldMeshMarker.Auto())
-                using (PerformanceMeasure.Measure("Chunk.RebuildMesh.DestroyOld"))
-                {
-                    if (_mesh)
-                    {
-                        if (_meshCollider)
-                        {
-                            _meshCollider.sharedMesh = null;
-                        }
-
-                        _meshFilter.sharedMesh = null;
-                        Destroy(_mesh);
-                        _mesh = null;
-                    }
-                }
-
                 if (_world == null)
                 {
                     return;
                 }
 
-                ChunkMeshInput input;
-                MeshBuildData meshBuildData;
-
-                using (CreateMeshInputData.Auto())
-                using (PerformanceMeasure.Measure("Chunk.RebuildMesh.CreateMeshInput"))
-                {
-                    input = _world.CreateMeshInput(_chunkCoord);
-                }
-
-                using (BuildMeshDataMarker.Auto())
-                using (PerformanceMeasure.Measure("Chunk.RebuildMesh.BuildMeshData"))
-                {
-                    meshBuildData = MeshBuilder.BuildMeshData(input);
-                }
-
-                using (CreateUnityMeshMarker.Auto())
-                using (PerformanceMeasure.Measure("Chunk.RebuildMesh.CreateUnityMesh"))
-                {
-                    _mesh = CreateMesh(meshBuildData);
-                }
-
-                using (ApplyMeshMarker.Auto())
-                using (PerformanceMeasure.Measure("Chunk.RebuildMesh.ApplyMesh"))
-                {
-                    _mesh.name = $"ChunkMesh_{gameObject.name}";
-                    _meshFilter.sharedMesh = _mesh;
-                    _meshCollider.sharedMesh = _mesh;
-                }
+                ChunkMeshInput input = CreateMeshInput();
+                MeshBuildData meshBuildData = CreateMeshBuildData(input);
+                ApplyMeshData(meshBuildData);
 
                 // 아래 로그는 가비지가 꽤 많이 생긴다. 필요할 때만 풀자
                 //Debug.Log($"Rebuild chunk mesh : {gameObject.name}\n vertices : {_mesh.vertices.Length} \n triangles : {_mesh.triangles.Length}");
             }
+        }
+
+        private void ApplyMeshData(MeshBuildData meshBuildData)
+        {
+            DestroyOldMesh();
+
+            using (CreateUnityMeshMarker.Auto())
+            using (PerformanceMeasure.Measure("Chunk.RebuildMesh.CreateUnityMesh"))
+            {
+                _mesh = CreateMesh(meshBuildData);
+            }
+
+            using (ApplyMeshMarker.Auto())
+            using (PerformanceMeasure.Measure("Chunk.RebuildMesh.ApplyMesh"))
+            {
+                _mesh.name = $"ChunkMesh_{gameObject.name}";
+                _meshFilter.sharedMesh = _mesh;
+                _meshCollider.sharedMesh = _mesh;
+            }
+        }
+
+        private static MeshBuildData CreateMeshBuildData(ChunkMeshInput input)
+        {
+            MeshBuildData meshBuildData;
+            using (BuildMeshDataMarker.Auto())
+            using (PerformanceMeasure.Measure("Chunk.RebuildMesh.BuildMeshData"))
+            {
+                meshBuildData = MeshBuilder.BuildMeshData(input);
+            }
+
+            return meshBuildData;
+        }
+
+        private ChunkMeshInput CreateMeshInput()
+        {
+            ChunkMeshInput input;
+            using (CreateMeshInputData.Auto())
+            using (PerformanceMeasure.Measure("Chunk.RebuildMesh.CreateMeshInput"))
+            {
+                input = _world.CreateMeshInput(_chunkCoord);
+            }
+
+            return input;
         }
 
         Mesh CreateMesh(MeshBuildData meshBuildData)
@@ -569,6 +571,25 @@ namespace VoxelEngine
             }
 
             return mesh;
+        }
+
+        void DestroyOldMesh()
+        {
+            using (DestroyOldMeshMarker.Auto())
+            using (PerformanceMeasure.Measure("Chunk.RebuildMesh.DestroyOld"))
+            {
+                if (_mesh)
+                {
+                    if (_meshCollider)
+                    {
+                        _meshCollider.sharedMesh = null;
+                    }
+
+                    _meshFilter.sharedMesh = null;
+                    Destroy(_mesh);
+                    _mesh = null;
+                }
+            }
         }
 
     }

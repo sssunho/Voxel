@@ -1,7 +1,5 @@
-using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.Assertions;
 
 namespace VoxelEngine
 {
@@ -9,10 +7,13 @@ namespace VoxelEngine
     {
         readonly Dictionary<Vector3Int, ChunkRenderer> _renderers = new();
         readonly List<ChunkRenderer> _deactivateRenderers = new();
+        readonly List<Vector3Int> _dirtyChunks = new();
+        readonly Queue<Vector3Int> _rebuildQueue = new();
+        readonly HashSet<Vector3Int> _queuedChunks = new();
 
         [SerializeField] VoxelWorldBehaviour _worldBehaviour;
-
         [SerializeField] ChunkRenderer _chunkRendererPrefab;
+        [SerializeField] int _maxRebuildPerFrame = 4;
 
         VoxelWorld _world;
 
@@ -35,33 +36,53 @@ namespace VoxelEngine
             {
                 PerformanceMeasure.Clear();
 
-                List<Vector3Int> dirtyChunks = new();
-                _world.ConsumeDirtyChunks(dirtyChunks);
+                EnqueueDirtyChunks();
+                ProcessRebuildQueue();
+            }
+        }
 
-                bool isChange = false;
+        private void EnqueueDirtyChunks()
+        {
+            _world.ConsumeDirtyChunks(_dirtyChunks);
 
-                foreach (Vector3Int chunkCoord in dirtyChunks)
+            foreach (Vector3Int chunkCoord in _dirtyChunks)
+            {
+                if (_queuedChunks.Add(chunkCoord))
                 {
-                    isChange = true;
+                    _rebuildQueue.Enqueue(chunkCoord);
+                }
+            }
+        }
 
-                    if (_renderers.TryGetValue(chunkCoord, out ChunkRenderer renderer))
-                    {
-                        renderer.RebuildMesh();
-                        continue;
-                    }
+        private void ProcessRebuildQueue()
+        {
+            bool isChange = false;
+            int rebuildCount = Mathf.Min(_maxRebuildPerFrame, _rebuildQueue.Count);
 
-                    ChunkRenderer newRenderer = GetNewRenderer();
-                    newRenderer.transform.position = VoxelWorld.ChunkToWorldOrigin(chunkCoord);
-                    newRenderer.name = $"Chunk({chunkCoord})";
-                    newRenderer.Initialize(_world, chunkCoord);
+            for (int i = 0; i < rebuildCount; i++)
+            {
+                isChange = true;
 
-                    _renderers.Add(chunkCoord, newRenderer);
+                Vector3Int chunkCoord = _rebuildQueue.Dequeue();
+                _queuedChunks.Remove(chunkCoord);
+
+                if (_renderers.TryGetValue(chunkCoord, out ChunkRenderer renderer))
+                {
+                    renderer.RebuildMesh();
+                    continue;
                 }
 
-                if (isChange)
-                {
-                    PerformanceMeasure.LogSummary();
-                }
+                ChunkRenderer newRenderer = GetNewRenderer();
+                newRenderer.transform.position = VoxelWorld.ChunkToWorldOrigin(chunkCoord);
+                newRenderer.name = $"Chunk({chunkCoord})";
+                newRenderer.Initialize(_world, chunkCoord);
+
+                _renderers.Add(chunkCoord, newRenderer);
+            }
+
+            if (isChange)
+            {
+                PerformanceMeasure.LogSummary();
             }
         }
 
