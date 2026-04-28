@@ -56,13 +56,10 @@ namespace VoxelEngine
 
         private void ProcessRebuildQueue()
         {
-            bool isChange = false;
             int rebuildCount = Mathf.Min(_maxRebuildPerFrame, _rebuildQueue.Count);
 
             for (int i = 0; i < rebuildCount; i++)
             {
-                isChange = true;
-
                 Vector3Int chunkCoord = _rebuildQueue.Dequeue();
                 _queuedChunks.Remove(chunkCoord);
 
@@ -78,11 +75,6 @@ namespace VoxelEngine
                 newRenderer.Initialize(_world, chunkCoord);
 
                 _renderers.Add(chunkCoord, newRenderer);
-            }
-
-            if (isChange)
-            {
-                PerformanceMeasure.LogSummary();
             }
         }
 

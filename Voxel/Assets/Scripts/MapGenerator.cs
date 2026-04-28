@@ -1,6 +1,5 @@
 using System;
 using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 using VoxelEngine;
 
@@ -13,6 +12,8 @@ public enum TestMapType
 
 public enum TestMapSize
 {
+    Size16 = 16,
+    Size32 = 32,
     Size64 = 64,
     Size128 = 128,
     Size256 = 256,

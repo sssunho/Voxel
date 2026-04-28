@@ -2,6 +2,10 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 using Unity.Profiling;
+using Unity.Jobs;
+using Unity.Collections;
+using Unity.Burst;
+using static VoxelEngine.MeshBuilder;
 
 namespace VoxelEngine
 {
@@ -26,6 +30,71 @@ namespace VoxelEngine
         static readonly ProfilerMarker BuildMeshMarker = new("MeshBuilder.BuildMesh");
         static readonly ProfilerMarker GreedyMeshPlaneMarker = new("MeshBuilder.GreedyMeshPlane");
         static readonly ProfilerMarker AddQuadMarkder = new("MeshBuilder.AddQuad");
+
+        [BurstCompile]
+        public struct BuildMaskJob : IJobFor
+        {
+            [ReadOnly] public NativeArray<BlockType> Blocks;
+            public NativeArray<byte> Mask;
+            public int Size;
+
+            public const byte Forward = 1 << 0;
+            public const byte Backward = 1 << 1;
+            public const byte Left = 1 << 2;
+            public const byte Right = 1 << 3;
+            public const byte Up = 1 << 4;
+            public const byte Down = 1 << 5;
+
+            public void Execute(int index)
+            {
+                int Padded = Size + 2;
+                int StrideY = Padded;
+                int StrideZ = Padded * Padded;
+
+                int x = index % Size;
+                int y = (index / Size) % Size;
+                int z = index / (Size * Size);
+
+                int paddedIndex = (x + 1) + (y + 1) * StrideY + (z + 1) * StrideZ;
+
+                byte mask = 0;
+
+                if (Blocks[paddedIndex] != BlockType.Air)
+                {
+                    if (Blocks[paddedIndex + 1] == BlockType.Air)
+                    {
+                        mask |= Right;
+                    }
+
+                    if (Blocks[paddedIndex - 1] == BlockType.Air)
+                    {
+                        mask |= Left;
+                    }
+
+                    if (Blocks[paddedIndex + StrideY] == BlockType.Air)
+                    {
+                        mask |= Up;
+                    }
+
+                    if (Blocks[paddedIndex - StrideY] == BlockType.Air)
+                    {
+                        mask |= Down;
+                    }
+
+                    if (Blocks[paddedIndex + StrideZ] == BlockType.Air)
+                    {
+                        mask |= Forward;
+                    }
+
+                    if (Blocks[paddedIndex - StrideZ] == BlockType.Air)
+                    {
+                        mask |= Backward;
+                    }
+                }
+
+                Mask[index] = mask;
+            }
+        }
 
         static readonly Vector3Int[] Offsets = new Vector3Int[]
         {
@@ -115,7 +184,7 @@ namespace VoxelEngine
             new PlaneDesc(Axis.Z, Axis.Y, Axis.X, true),
         };
 
-        public enum Axis
+        public enum Axis : byte
         {
             X = 0,
             Y = 1,
@@ -125,7 +194,6 @@ namespace VoxelEngine
         static readonly int[] FaceTriangles = { 0, 1, 2, 0, 2, 3 };
 
         static readonly int DefaultQuadCapacity = 2048;
-
         static bool[] _greedyMeshingMaskBuffer = new bool[VoxelStatics.ChunkSize * VoxelStatics.ChunkSize];
 
         public static void AddQuad(Axis normal, Axis u, Axis v, bool isNegativeNormal, Vector3 position, int width, int height, MeshBuildData meshBuildData, BlockType type)
@@ -456,6 +524,8 @@ namespace VoxelEngine
         static readonly ProfilerMarker ApplyMeshMarker = new("ChunkRenderer.ApplyMesh");
         static readonly ProfilerMarker MeshUploadMarker = new("MeshBuilder.MeshUpload");
         static readonly ProfilerMarker RecalculateMarker = new("MeshBuilder.Recalculate");
+        static readonly ProfilerMarker CountVisibleFaceMarker = new("ChunkRenderer.CountVisibleFace");
+        static readonly ProfilerMarker CountVisibleFaceWithJobMarker = new("ChunkRenderer.CountVisibleFaceWithJob");
 
         void Awake()
         {
@@ -489,7 +559,6 @@ namespace VoxelEngine
         public void RebuildMesh()
         {
             using (RebuildMeshMarker.Auto())
-            using (PerformanceMeasure.Measure("Chunk.RebuildMesh.Total"))
             {
                 Debug.Assert(_meshFilter != null);
 
@@ -512,13 +581,11 @@ namespace VoxelEngine
             DestroyOldMesh();
 
             using (CreateUnityMeshMarker.Auto())
-            using (PerformanceMeasure.Measure("Chunk.RebuildMesh.CreateUnityMesh"))
             {
                 _mesh = CreateMesh(meshBuildData);
             }
 
             using (ApplyMeshMarker.Auto())
-            using (PerformanceMeasure.Measure("Chunk.RebuildMesh.ApplyMesh"))
             {
                 _mesh.name = $"ChunkMesh_{gameObject.name}";
                 _meshFilter.sharedMesh = _mesh;
@@ -530,7 +597,6 @@ namespace VoxelEngine
         {
             MeshBuildData meshBuildData;
             using (BuildMeshDataMarker.Auto())
-            using (PerformanceMeasure.Measure("Chunk.RebuildMesh.BuildMeshData"))
             {
                 meshBuildData = MeshBuilder.BuildMeshData(input);
             }
@@ -542,7 +608,6 @@ namespace VoxelEngine
         {
             ChunkMeshInput input;
             using (CreateMeshInputData.Auto())
-            using (PerformanceMeasure.Measure("Chunk.RebuildMesh.CreateMeshInput"))
             {
                 input = _world.CreateMeshInput(_chunkCoord);
             }
@@ -555,7 +620,7 @@ namespace VoxelEngine
             Mesh mesh = new Mesh();
 
             using (MeshUploadMarker.Auto())
-            using (PerformanceMeasure.Measure("MeshBuilder.MeshDataAssign"))
+
             {
                 mesh.SetVertices(meshBuildData.Vertices);
                 mesh.SetTriangles(meshBuildData.Triangles, 0);
@@ -564,7 +629,6 @@ namespace VoxelEngine
             }
 
             using (RecalculateMarker.Auto())
-            using (PerformanceMeasure.Measure("MeshBuilder.Recalculate"))
             {
                 mesh.RecalculateNormals();
                 mesh.RecalculateBounds();
@@ -576,7 +640,6 @@ namespace VoxelEngine
         void DestroyOldMesh()
         {
             using (DestroyOldMeshMarker.Auto())
-            using (PerformanceMeasure.Measure("Chunk.RebuildMesh.DestroyOld"))
             {
                 if (_mesh)
                 {
