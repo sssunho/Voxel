@@ -25,11 +25,74 @@ namespace VoxelEngine
         }
     }
 
+    public struct PlaneDesc
+    {
+        public Axis Normal;
+        public Axis U;
+        public Axis V;
+        public bool IsNegative;
+
+        public int UStride;
+        public int VStride;
+        public int NStride;
+
+        public int PaddedUStride;
+        public int PaddedVStride;
+        public int PaddedNStride;
+
+        public PlaneDesc(Axis u, Axis v, Axis n, bool isNegative, int size)
+        {
+            U = u;
+            V = v;
+            Normal = n;
+            IsNegative = isNegative;
+
+            UStride = VStride = NStride = default;
+
+            UStride = AxisToStride(u, size);
+            VStride = AxisToStride(v, size);
+            NStride = AxisToStride(n, size);
+
+            PaddedUStride = AxisToStride(u, size + 2);
+            PaddedVStride = AxisToStride(v, size + 2);
+            PaddedNStride = AxisToStride(n, size + 2);
+        }
+
+        static int AxisToStride(Axis axis, int size)
+        {
+            switch (axis)
+            {
+                case Axis.X:
+                    return 1;
+                case Axis.Y:
+                    return size;
+                case Axis.Z:
+                    return size * size;
+
+                default:
+                    throw new NotImplementedException();
+            }
+        }
+
+        public int ToBlockIndex(Vector3Int uvn)
+        {
+            return uvn.x * UStride + uvn.y * VStride + uvn.z * NStride;
+        }
+
+        public int ToPaddedBlockIndex(Vector3Int uvn)
+        {
+            return (uvn.x + 1) * PaddedUStride + (uvn.y + 1) * PaddedVStride + (uvn.z + 1) * PaddedNStride;
+        }
+    }
+
     public static class MeshBuilder
     {
         static readonly ProfilerMarker BuildMeshMarker = new("MeshBuilder.BuildMesh");
         static readonly ProfilerMarker GreedyMeshPlaneMarker = new("MeshBuilder.GreedyMeshPlane");
         static readonly ProfilerMarker AddQuadMarkder = new("MeshBuilder.AddQuad");
+        static readonly ProfilerMarker BuildMaskMarker = new("MeshBuilder.BuildMask_");
+        static readonly ProfilerMarker CopyMask = new("MeshBuilder.A");
+        static readonly ProfilerMarker GreedyAlgorithm = new("MeshBuilder.B");
 
         [BurstCompile]
         public struct BuildMaskJob : IJobFor
@@ -47,15 +110,15 @@ namespace VoxelEngine
 
             public void Execute(int index)
             {
-                int Padded = Size + 2;
-                int StrideY = Padded;
-                int StrideZ = Padded * Padded;
+                int padded = Size + 2;
+                int strideY = padded;
+                int strideZ = padded * padded;
 
                 int x = index % Size;
                 int y = (index / Size) % Size;
                 int z = index / (Size * Size);
 
-                int paddedIndex = (x + 1) + (y + 1) * StrideY + (z + 1) * StrideZ;
+                int paddedIndex = (x + 1) + (y + 1) * strideY + (z + 1) * strideZ;
 
                 byte mask = 0;
 
@@ -71,22 +134,22 @@ namespace VoxelEngine
                         mask |= Left;
                     }
 
-                    if (Blocks[paddedIndex + StrideY] == BlockType.Air)
+                    if (Blocks[paddedIndex + strideY] == BlockType.Air)
                     {
                         mask |= Up;
                     }
 
-                    if (Blocks[paddedIndex - StrideY] == BlockType.Air)
+                    if (Blocks[paddedIndex - strideY] == BlockType.Air)
                     {
                         mask |= Down;
                     }
 
-                    if (Blocks[paddedIndex + StrideZ] == BlockType.Air)
+                    if (Blocks[paddedIndex + strideZ] == BlockType.Air)
                     {
                         mask |= Forward;
                     }
 
-                    if (Blocks[paddedIndex - StrideZ] == BlockType.Air)
+                    if (Blocks[paddedIndex - strideZ] == BlockType.Air)
                     {
                         mask |= Backward;
                     }
@@ -95,16 +158,6 @@ namespace VoxelEngine
                 Mask[index] = mask;
             }
         }
-
-        static readonly Vector3Int[] Offsets = new Vector3Int[]
-        {
-            new Vector3Int(0, 0, 1), // foward
-            new Vector3Int(0, 0, -1), // back
-            new Vector3Int(-1, 0, 0), // left
-            new Vector3Int(1, 0, 0), // right
-            new Vector3Int(0, 1, 0), // up
-            new Vector3Int(0, -1, 0), // down
-        };
 
         static readonly Vector3[,] FaceVertices = new Vector3[6, 4]
         {
@@ -158,30 +211,14 @@ namespace VoxelEngine
 
         };
 
-        struct PlaneDesc
-        {
-            public Axis Normal;
-            public Axis U;
-            public Axis V;
-            public bool IsNegative;
-
-            public PlaneDesc(Axis u, Axis v, Axis n, bool isNegative)
-            {
-                U = u;
-                V = v;
-                Normal = n;
-                IsNegative = isNegative;
-            }
-        }
-
         static readonly PlaneDesc[] PlaneDescs =
         {
-            new PlaneDesc(Axis.X, Axis.Y, Axis.Z, false),
-            new PlaneDesc(Axis.X, Axis.Z, Axis.Y, true),
-            new PlaneDesc(Axis.Y, Axis.Z, Axis.X, false),
-            new PlaneDesc(Axis.Y, Axis.X, Axis.Z, true),
-            new PlaneDesc(Axis.Z, Axis.X, Axis.Y, false),
-            new PlaneDesc(Axis.Z, Axis.Y, Axis.X, true),
+            new PlaneDesc(Axis.X, Axis.Y, Axis.Z, false, VoxelStatics.ChunkSize),
+            new PlaneDesc(Axis.X, Axis.Z, Axis.Y, true, VoxelStatics.ChunkSize),
+            new PlaneDesc(Axis.Y, Axis.Z, Axis.X, false, VoxelStatics.ChunkSize),
+            new PlaneDesc(Axis.Y, Axis.X, Axis.Z, true, VoxelStatics.ChunkSize),
+            new PlaneDesc(Axis.Z, Axis.X, Axis.Y, false, VoxelStatics.ChunkSize),
+            new PlaneDesc(Axis.Z, Axis.Y, Axis.X, true, VoxelStatics.ChunkSize),
         };
 
         public enum Axis : byte
@@ -194,7 +231,6 @@ namespace VoxelEngine
         static readonly int[] FaceTriangles = { 0, 1, 2, 0, 2, 3 };
 
         static readonly int DefaultQuadCapacity = 2048;
-        static bool[] _greedyMeshingMaskBuffer = new bool[VoxelStatics.ChunkSize * VoxelStatics.ChunkSize];
 
         public static void AddQuad(Axis normal, Axis u, Axis v, bool isNegativeNormal, Vector3 position, int width, int height, MeshBuildData meshBuildData, BlockType type)
         {
@@ -275,36 +311,60 @@ namespace VoxelEngine
             }
         }
 
-        
-
         public static MeshBuildData BuildMeshData(ChunkMeshInput meshInput)
         {
             using (BuildMeshMarker.Auto())
-            using (PerformanceMeasure.Measure($"MeshBuilder.BuildMesh.Total"))
             {
                 MeshBuildData meshBuildData = new MeshBuildData(DefaultQuadCapacity * 4, DefaultQuadCapacity * 6);
 
+                int blockCount = meshInput.Size * meshInput.Size * meshInput.Size;
+                using NativeArray<BlockType> blocks = new NativeArray<BlockType>(meshInput.Blocks, Allocator.TempJob);
+                using NativeArray<byte> mask = new NativeArray<byte>(blockCount, Allocator.TempJob);
+
+                BuildMaskJob job = new BuildMaskJob()
+                {
+                    Blocks = blocks,
+                    Mask = mask,
+                    Size = meshInput.Size,
+                };
+                JobHandle handle = job.ScheduleParallel(blockCount, 64, default);
+                handle.Complete();
+
                 foreach (PlaneDesc desc in PlaneDescs)
                 {
-                    using (GreedyMeshPlaneMarker.Auto())
-                    using (PerformanceMeasure.Measure($"MeshBuilder.BuildMesh.GreedyMeshPlane"))
-                    {
-                        GreedyMeshPlane(meshInput, desc, meshBuildData);
-                    }
+                    GreedyMeshPlane(meshInput, desc, meshBuildData, mask);
                 }
 
                 return meshBuildData;
             }
         }
 
-        static void GreedyMeshPlane(ChunkMeshInput meshInput, PlaneDesc desc, MeshBuildData meshBuildData)
+        static void GreedyMeshPlane(ChunkMeshInput meshInput, PlaneDesc desc, MeshBuildData meshBuildData, NativeArray<byte> workingFaceMask)
         {
             Direction normalDirection = GetDirectionFromFaceNormal(desc.Normal, desc.IsNegative);
             int size = meshInput.Size;
 
-            for (int i = 0; i < _greedyMeshingMaskBuffer.Length; i++)
+            byte maskBit = 0;
+            switch (normalDirection)
             {
-                _greedyMeshingMaskBuffer[i] = false;
+                case Direction.Forward:
+                    maskBit = BuildMaskJob.Forward;
+                    break;
+                case Direction.Back:
+                    maskBit = BuildMaskJob.Backward;
+                    break;
+                case Direction.Left:
+                    maskBit = BuildMaskJob.Left;
+                    break;
+                case Direction.Right:
+                    maskBit = BuildMaskJob.Right;
+                    break;
+                case Direction.Up:
+                    maskBit = BuildMaskJob.Up;
+                    break;
+                case Direction.Down:
+                    maskBit = BuildMaskJob.Down;
+                    break;
             }
 
             for (int n = 0; n < size; n++)
@@ -313,41 +373,28 @@ namespace VoxelEngine
                 {
                     for (int v = 0; v < size; v++)
                     {
-                        Vector3Int localPos = UVNtoXYZ(new Vector3Int(u, v, n), desc.U, desc.V, desc.Normal);
-
-                        if (!meshInput.IsSolid(localPos))
-                        {
-                            continue;
-                        }
-
-                        if (!meshInput.IsSolid(localPos + Offsets[(int)normalDirection]))
-                        {
-                            _greedyMeshingMaskBuffer[u + v * size] = true;
-                        }
-                    }
-                }
-
-                for (int u = 0; u < size; u++)
-                {
-                    for (int v = 0; v < size; v++)
-                    {
-                        if (!_greedyMeshingMaskBuffer[u + v * size])
-                        {
-                            continue;
-                        }
-
                         Vector3Int uvn = new Vector3Int(u, v, n);
-                        Vector3Int localPos = UVNtoXYZ(uvn, desc.U, desc.V, desc.Normal);
-                        BlockType type = meshInput.GetBlock(localPos);
+                        int index = desc.ToBlockIndex(uvn);
 
+                        if (!IsVisibleFace(index, workingFaceMask, size, maskBit))
+                        {
+                            continue;
+                        }
+
+                        int paddedIndex = desc.ToPaddedBlockIndex(uvn);
+                        BlockType type = meshInput.GetBlock(paddedIndex);
                         int width = 1;
-                        while (u + width < VoxelStatics.ChunkSize && 
-                            _greedyMeshingMaskBuffer[u + width + v * size])
+                        while (u + width < size)
                         {
                             Vector3Int nextuvn = new Vector3Int(u + width, v, n);
-                            Vector3Int nextLocalPos = UVNtoXYZ(nextuvn, desc.U, desc.V, desc.Normal);
-                            
-                            if (meshInput.GetBlock(nextLocalPos) != type)
+                            int nextIndex = desc.ToBlockIndex(nextuvn);
+                            if (!IsVisibleFace(nextIndex, workingFaceMask, size, maskBit))
+                            {
+                                break;
+                            }
+
+                            int paddedNextIndex = desc.ToPaddedBlockIndex(nextuvn);
+                            if (meshInput.GetBlock(paddedNextIndex) != type)
                             {
                                 break;
                             }
@@ -356,14 +403,15 @@ namespace VoxelEngine
                         }
 
                         int height = 1;
-                        while (v + height < VoxelStatics.ChunkSize)
+                        while (v + height < size)
                         {
                             bool canExpand = true;
                             for (int i = u; i < u + width; i++)
                             {
                                 Vector3Int nextuvn = new Vector3Int(i, v + height, n);
-                                Vector3Int nextLocalPos = UVNtoXYZ(nextuvn, desc.U, desc.V, desc.Normal);
-                                if (!_greedyMeshingMaskBuffer[i + (v + height) * VoxelStatics.ChunkSize] || meshInput.GetBlock(nextLocalPos) != type)
+                                int nextIndex = desc.ToBlockIndex(nextuvn);
+                                int paddedNextIndex = desc.ToPaddedBlockIndex(nextuvn);
+                                if (!IsVisibleFace(nextIndex, workingFaceMask, size, maskBit) || meshInput.GetBlock(paddedNextIndex) != type)
                                 {
                                     canExpand = false;
                                     break;
@@ -382,6 +430,7 @@ namespace VoxelEngine
 
                         using (AddQuadMarkder.Auto())
                         {
+                            Vector3Int localPos = UVNtoXYZ(uvn, desc.U, desc.V, desc.Normal);
                             AddQuad(desc.Normal, desc.U, desc.V, desc.IsNegative, localPos, width, height, meshBuildData, type);
                         }
 
@@ -389,13 +438,24 @@ namespace VoxelEngine
                         {
                             for (int dv = v; dv < v + height; dv++)
                             {
-                                _greedyMeshingMaskBuffer[du + dv * VoxelStatics.ChunkSize] = false;
+                                int dIndex = desc.ToBlockIndex(new Vector3Int(du, dv, n));
+                                ClearFaceMaskBit(dIndex, workingFaceMask, size, maskBit);
                             }
                         }
 
                     }
                 }
             }
+        }
+
+        static bool IsVisibleFace(int blockIndex, NativeArray<byte> workingFaceMask, int size, int maskBit)
+        {
+            return (workingFaceMask[blockIndex] & maskBit) != 0;
+        }
+
+        static void ClearFaceMaskBit(int blockIndex, NativeArray<byte> workingFaceMask, int size, int maskBit)
+        {
+            workingFaceMask[blockIndex] &= (byte)~maskBit;
         }
 
         static Vector3Int UVNtoXYZ(Vector3Int uvn, Axis u, Axis v, Axis n)
@@ -587,9 +647,20 @@ namespace VoxelEngine
 
             using (ApplyMeshMarker.Auto())
             {
-                _mesh.name = $"ChunkMesh_{gameObject.name}";
-                _meshFilter.sharedMesh = _mesh;
-                _meshCollider.sharedMesh = _mesh;
+                if (_mesh)
+                {
+                    _mesh.name = $"ChunkMesh_{gameObject.name}";
+                }
+
+                if (_meshFilter)
+                {
+                    _meshFilter.sharedMesh = _mesh;
+                }
+
+                if (_meshCollider)
+                {
+                    _meshCollider.sharedMesh = _mesh;
+                }
             }
         }
 

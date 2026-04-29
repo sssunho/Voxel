@@ -1,6 +1,4 @@
-using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
 using UnityEngine;
 
 namespace VoxelEngine
@@ -37,6 +35,17 @@ namespace VoxelEngine
         {
             return ToFlatIndex(pos.x, pos.y, pos.z);
         }
+
+        public BlockType GetBlock(int index)
+        {
+            if (index < Blocks.Length)
+            {
+                return Blocks[index];
+            }
+
+            return BlockType.Air;
+        }
+
         public BlockType GetBlock(int x, int y, int z)
         {
             int idx = ToFlatIndex(x, y, z);
