@@ -87,13 +87,6 @@ namespace VoxelEngine
 
     public static class MeshBuilder
     {
-        static readonly ProfilerMarker BuildMeshMarker = new("MeshBuilder.BuildMesh");
-        static readonly ProfilerMarker GreedyMeshPlaneMarker = new("MeshBuilder.GreedyMeshPlane");
-        static readonly ProfilerMarker AddQuadMarkder = new("MeshBuilder.AddQuad");
-        static readonly ProfilerMarker BuildMaskMarker = new("MeshBuilder.BuildMask_");
-        static readonly ProfilerMarker CopyMask = new("MeshBuilder.A");
-        static readonly ProfilerMarker GreedyAlgorithm = new("MeshBuilder.B");
-
         [BurstCompile]
         public struct BuildMaskJob : IJobFor
         {
@@ -232,6 +225,8 @@ namespace VoxelEngine
 
         static readonly int DefaultQuadCapacity = 2048;
 
+        static bool[] _greedyMaskBuffer = new bool[VoxelStatics.ChunkSize * VoxelStatics.ChunkSize];
+
         public static void AddQuad(Axis normal, Axis u, Axis v, bool isNegativeNormal, Vector3 position, int width, int height, MeshBuildData meshBuildData, BlockType type)
         {
             int startIndex = meshBuildData.Vertices.Count;
@@ -313,30 +308,26 @@ namespace VoxelEngine
 
         public static MeshBuildData BuildMeshData(ChunkMeshInput meshInput)
         {
-            using (BuildMeshMarker.Auto())
+            MeshBuildData meshBuildData = new MeshBuildData(DefaultQuadCapacity * 4, DefaultQuadCapacity * 6);
+
+            int blockCount = meshInput.Size * meshInput.Size * meshInput.Size;
+            using NativeArray<byte> mask = new NativeArray<byte>(blockCount, Allocator.TempJob);
+
+            BuildMaskJob job = new BuildMaskJob()
             {
-                MeshBuildData meshBuildData = new MeshBuildData(DefaultQuadCapacity * 4, DefaultQuadCapacity * 6);
+                Blocks = meshInput.Blocks,
+                Mask = mask,
+                Size = meshInput.Size,
+            };
+            JobHandle handle = job.ScheduleParallel(blockCount, 64, default);
+            handle.Complete();
 
-                int blockCount = meshInput.Size * meshInput.Size * meshInput.Size;
-                using NativeArray<BlockType> blocks = new NativeArray<BlockType>(meshInput.Blocks, Allocator.TempJob);
-                using NativeArray<byte> mask = new NativeArray<byte>(blockCount, Allocator.TempJob);
-
-                BuildMaskJob job = new BuildMaskJob()
-                {
-                    Blocks = blocks,
-                    Mask = mask,
-                    Size = meshInput.Size,
-                };
-                JobHandle handle = job.ScheduleParallel(blockCount, 64, default);
-                handle.Complete();
-
-                foreach (PlaneDesc desc in PlaneDescs)
-                {
-                    GreedyMeshPlane(meshInput, desc, meshBuildData, mask);
-                }
-
-                return meshBuildData;
+            foreach (PlaneDesc desc in PlaneDescs)
+            {
+                GreedyMeshPlane(meshInput, desc, meshBuildData, mask);
             }
+
+            return meshBuildData;
         }
 
         static void GreedyMeshPlane(ChunkMeshInput meshInput, PlaneDesc desc, MeshBuildData meshBuildData, NativeArray<byte> workingFaceMask)
@@ -428,11 +419,8 @@ namespace VoxelEngine
                             }
                         }
 
-                        using (AddQuadMarkder.Auto())
-                        {
-                            Vector3Int localPos = UVNtoXYZ(uvn, desc.U, desc.V, desc.Normal);
-                            AddQuad(desc.Normal, desc.U, desc.V, desc.IsNegative, localPos, width, height, meshBuildData, type);
-                        }
+                        Vector3Int localPos = UVNtoXYZ(uvn, desc.U, desc.V, desc.Normal);
+                        AddQuad(desc.Normal, desc.U, desc.V, desc.IsNegative, localPos, width, height, meshBuildData, type);
 
                         for (int du = u; du < u + width; du++)
                         {
@@ -577,15 +565,6 @@ namespace VoxelEngine
         Mesh _mesh;
 
         static readonly ProfilerMarker RebuildMeshMarker = new("ChunkRenderer.RebuildMesh");
-        static readonly ProfilerMarker DestroyOldMeshMarker = new("ChunkRenderer.DestroyOldMesh");
-        static readonly ProfilerMarker CreateMeshInputData = new("ChunkRenderer.CreateMeshInput");
-        static readonly ProfilerMarker BuildMeshDataMarker = new("ChunkRenderer.BuildMesh");
-        static readonly ProfilerMarker CreateUnityMeshMarker = new("ChunkRenderer.CreateUnityMesh");
-        static readonly ProfilerMarker ApplyMeshMarker = new("ChunkRenderer.ApplyMesh");
-        static readonly ProfilerMarker MeshUploadMarker = new("MeshBuilder.MeshUpload");
-        static readonly ProfilerMarker RecalculateMarker = new("MeshBuilder.Recalculate");
-        static readonly ProfilerMarker CountVisibleFaceMarker = new("ChunkRenderer.CountVisibleFace");
-        static readonly ProfilerMarker CountVisibleFaceWithJobMarker = new("ChunkRenderer.CountVisibleFaceWithJob");
 
         void Awake()
         {
@@ -627,9 +606,11 @@ namespace VoxelEngine
                     return;
                 }
 
-                ChunkMeshInput input = CreateMeshInput();
-                MeshBuildData meshBuildData = CreateMeshBuildData(input);
-                ApplyMeshData(meshBuildData);
+                using (ChunkMeshInput input = CreateMeshInput())
+                {
+                    MeshBuildData meshBuildData = CreateMeshBuildData(input);
+                    ApplyMeshData(meshBuildData);
+                }
 
                 // 아래 로그는 가비지가 꽤 많이 생긴다. 필요할 때만 풀자
                 //Debug.Log($"Rebuild chunk mesh : {gameObject.name}\n vertices : {_mesh.vertices.Length} \n triangles : {_mesh.triangles.Length}");
@@ -640,48 +621,35 @@ namespace VoxelEngine
         {
             DestroyOldMesh();
 
-            using (CreateUnityMeshMarker.Auto())
+            _mesh = CreateMesh(meshBuildData);
+
+            if (_mesh)
             {
-                _mesh = CreateMesh(meshBuildData);
+                _mesh.name = $"ChunkMesh_{gameObject.name}";
             }
 
-            using (ApplyMeshMarker.Auto())
+            if (_meshFilter)
             {
-                if (_mesh)
-                {
-                    _mesh.name = $"ChunkMesh_{gameObject.name}";
-                }
+                _meshFilter.sharedMesh = _mesh;
+            }
 
-                if (_meshFilter)
-                {
-                    _meshFilter.sharedMesh = _mesh;
-                }
-
-                if (_meshCollider)
-                {
-                    _meshCollider.sharedMesh = _mesh;
-                }
+            if (_meshCollider)
+            {
+                _meshCollider.sharedMesh = _mesh;
             }
         }
 
         private static MeshBuildData CreateMeshBuildData(ChunkMeshInput input)
         {
             MeshBuildData meshBuildData;
-            using (BuildMeshDataMarker.Auto())
-            {
-                meshBuildData = MeshBuilder.BuildMeshData(input);
-            }
-
+            meshBuildData = MeshBuilder.BuildMeshData(input);
             return meshBuildData;
         }
 
         private ChunkMeshInput CreateMeshInput()
         {
             ChunkMeshInput input;
-            using (CreateMeshInputData.Auto())
-            {
-                input = _world.CreateMeshInput(_chunkCoord);
-            }
+            input = _world.CreateMeshInput(_chunkCoord);
 
             return input;
         }
@@ -690,39 +658,29 @@ namespace VoxelEngine
         {
             Mesh mesh = new Mesh();
 
-            using (MeshUploadMarker.Auto())
+            mesh.SetVertices(meshBuildData.Vertices);
+            mesh.SetTriangles(meshBuildData.Triangles, 0);
+            mesh.SetUVs(0, meshBuildData.UVs);
+            mesh.SetUVs(1, meshBuildData.UV2s);
 
-            {
-                mesh.SetVertices(meshBuildData.Vertices);
-                mesh.SetTriangles(meshBuildData.Triangles, 0);
-                mesh.SetUVs(0, meshBuildData.UVs);
-                mesh.SetUVs(1, meshBuildData.UV2s);
-            }
-
-            using (RecalculateMarker.Auto())
-            {
-                mesh.RecalculateNormals();
-                mesh.RecalculateBounds();
-            }
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
 
             return mesh;
         }
 
         void DestroyOldMesh()
         {
-            using (DestroyOldMeshMarker.Auto())
+            if (_mesh)
             {
-                if (_mesh)
+                if (_meshCollider)
                 {
-                    if (_meshCollider)
-                    {
-                        _meshCollider.sharedMesh = null;
-                    }
-
-                    _meshFilter.sharedMesh = null;
-                    Destroy(_mesh);
-                    _mesh = null;
+                    _meshCollider.sharedMesh = null;
                 }
+
+                _meshFilter.sharedMesh = null;
+                Destroy(_mesh);
+                _mesh = null;
             }
         }
 

@@ -1,15 +1,18 @@
+using System;
 using System.Collections.Generic;
+using Unity.Collections;
 using UnityEngine;
+using UnityEngine.UIElements;
 
 namespace VoxelEngine
 {
-    public struct ChunkMeshInput
+    public struct ChunkMeshInput : IDisposable
     {
-        public BlockType[] Blocks;
+        public NativeArray<BlockType> Blocks;
         public int Size;
 
         public bool IsInRange(int x, int y, int z)
-        {
+        { 
             return x >= -1 && y >= -1 && z >= -1 &&
                 x <= Size && y <= Size && z <= Size;
         }
@@ -19,7 +22,7 @@ namespace VoxelEngine
             return IsInRange(pos.x, pos.y, pos.z);
         }
 
-        public int ToFlatIndex(int x, int y, int z)
+        public int ToPaddedIndex(int x, int y, int z)
         {
             if (IsInRange(x, y, z) == false)
             {
@@ -31,14 +34,14 @@ namespace VoxelEngine
             return (x + 1) + (y + 1) * Padded + (z + 1) * Padded * Padded;
         }
 
-        public int ToFlatIndex(Vector3Int pos)
+        public int ToPaddedIndex(Vector3Int pos)
         {
-            return ToFlatIndex(pos.x, pos.y, pos.z);
+            return ToPaddedIndex(pos.x, pos.y, pos.z);
         }
 
         public BlockType GetBlock(int index)
         {
-            if (index < Blocks.Length)
+            if (index >= 0 && index < Blocks.Length)
             {
                 return Blocks[index];
             }
@@ -48,7 +51,7 @@ namespace VoxelEngine
 
         public BlockType GetBlock(int x, int y, int z)
         {
-            int idx = ToFlatIndex(x, y, z);
+            int idx = ToPaddedIndex(x, y, z);
 
             if (idx < 0)
                 return BlockType.Air;
@@ -70,13 +73,24 @@ namespace VoxelEngine
         {
             return IsSolid(pos.x, pos.y, pos.z);
         }
+
+        public void Dispose()
+        {
+            if (Blocks.IsCreated)
+            {
+                Blocks.Dispose();
+            }
+        }
     }
 
     public class VoxelWorld
     {
         class Chunk
         {
-            readonly Voxel[,,] _blocks = new Voxel[VoxelStatics.ChunkSize, VoxelStatics.ChunkSize, VoxelStatics.ChunkSize];
+            readonly Voxel[] _blocks = new Voxel[VoxelStatics.ChunkSize * VoxelStatics.ChunkSize * VoxelStatics.ChunkSize];
+
+            readonly int _strideY = VoxelStatics.ChunkSize;
+            readonly int _strideZ = VoxelStatics.ChunkSize * VoxelStatics.ChunkSize;
 
             public bool IsSolid(Vector3Int pos)
             {
@@ -91,7 +105,7 @@ namespace VoxelEngine
                     return false;
                 }
 
-                return _blocks[x, y, z].IsSolid;
+                return _blocks[x + y * _strideY + z * _strideZ].IsSolid;
             }
 
             public bool SetBlock(int x, int y, int z, BlockType type)
@@ -101,10 +115,12 @@ namespace VoxelEngine
                 {
                     return false;
                 }
+                
+                int index = ToFlatIndex(x, y, z);
 
-                if (_blocks[x, y, z].Type != type)
+                if (_blocks[index].Type != type)
                 {
-                    _blocks[x, y, z].Type = type;
+                    _blocks[index].Type = type;
                     return true;
                 }
 
@@ -119,7 +135,8 @@ namespace VoxelEngine
                     return default;
                 }
 
-                return _blocks[x, y, z];
+                int index = ToFlatIndex(x, y, z);
+                return _blocks[index];
             }
 
             public Voxel GetBlock(Vector3Int pos)
@@ -130,6 +147,16 @@ namespace VoxelEngine
             public BlockType GetBlockType(int x, int y, int z)
             {
                 return GetBlock(x, y, z).Type;
+            }
+
+            public int ToFlatIndex(int x, int y, int z)
+            {
+                return x + y * _strideY + z * _strideZ;
+            }
+
+            public int ToFlatIndex(Vector3Int pos)
+            {
+                return ToFlatIndex(pos.x, pos.y, pos.z);
             }
 
         }
@@ -337,65 +364,68 @@ namespace VoxelEngine
             int chunkSize = VoxelStatics.ChunkSize;
             int blockCount = (chunkSize + 2) * (chunkSize + 2) * (chunkSize + 2);
 
-            input.Blocks = new BlockType[blockCount];
             input.Size = chunkSize;
 
             if (TryGetChunk(chunkCoord, out Chunk chunk))
             {
+                input.Blocks = new NativeArray<BlockType>(blockCount, Allocator.TempJob);
+
                 for (int x = -1; x <= chunkSize; x++)
                 {
                     for (int y = -1; y <= chunkSize; y++)
                     {
                         for (int z = -1; z <= chunkSize; z++)
                         {
-                            int index = input.ToFlatIndex(x, y, z);
+                            int index = input.ToPaddedIndex(x, y, z);
 
                             if (x >= 0 && y >= 0 && z >= 0 && x < chunkSize && y < chunkSize && z < chunkSize)
                             {
-                                Vector3Int local = new Vector3Int(x, y, z);
-                                input.Blocks[index] = chunk.GetBlock(local).Type;
+                                input.Blocks[index] = chunk.GetBlock(x, y, z).Type;
                             }
                             else
                             {
                                 Vector3Int neighborCoord = chunkCoord;
-                                Vector3Int neighborLocal = new Vector3Int(x, y, z);
+
+                                int neighborLocalX = x;
+                                int neighborLocalY = y;
+                                int neighborLocalZ = z;
 
                                 if (x == -1)
                                 {
                                     neighborCoord.x -= 1;
-                                    neighborLocal.x = chunkSize - 1;
+                                    neighborLocalX = chunkSize - 1;
                                 }
                                 else if (x == chunkSize)
                                 {
                                     neighborCoord.x += 1;
-                                    neighborLocal.x = 0;
+                                    neighborLocalX = 0;
                                 }
 
                                 if (y == -1)
                                 {
                                     neighborCoord.y -= 1;
-                                    neighborLocal.y = chunkSize - 1;
+                                    neighborLocalY = chunkSize - 1;
                                 } 
                                 else if (y == chunkSize)
                                 {
                                     neighborCoord.y += 1;
-                                    neighborLocal.y = 0;
+                                    neighborLocalY = 0;
                                 }
 
                                 if (z == -1)
                                 {
                                     neighborCoord.z -= 1;
-                                    neighborLocal.z = chunkSize - 1;
+                                    neighborLocalZ = chunkSize - 1;
                                 }
                                 else if (z == chunkSize)
                                 {
                                     neighborCoord.z += 1;
-                                    neighborLocal.z = 0;
+                                    neighborLocalZ = 0;
                                 }
 
                                 if (TryGetChunk(neighborCoord, out Chunk neighbor))
                                 {
-                                    input.Blocks[index] = neighbor.GetBlock(neighborLocal).Type;
+                                    input.Blocks[index] = neighbor.GetBlock(neighborLocalX, neighborLocalY, neighborLocalZ).Type;
                                 }
                                 else
                                 {
