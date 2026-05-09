@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using Unity.Profiling;
 using UnityEngine;
 using VoxelEngine;
 
@@ -143,6 +144,5 @@ public class MapGenerator : MonoBehaviour
                 }
             }
         }
-
     }
 }

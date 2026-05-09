@@ -2,12 +2,12 @@ namespace VoxelEngine
 {
     public enum Direction
     {
-        Forward,
-        Back,
         Left,
         Right,
-        Up,
         Down,
+        Up,
+        Back,
+        Forward,
     }
 
     public enum BlockType : byte
@@ -34,7 +34,7 @@ namespace VoxelEngine
 
     public static class VoxelStatics
     {
-        public const int ChunkSize = 1 << 4;
+        public const int ChunkSize = 1 << 5;
     }
 
 }

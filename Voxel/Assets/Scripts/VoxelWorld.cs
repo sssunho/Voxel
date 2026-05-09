@@ -1,18 +1,42 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using Unity.Collections;
+using Unity.Mathematics;
 using UnityEngine;
-using UnityEngine.UIElements;
 
 namespace VoxelEngine
 {
     public struct ChunkMeshInput : IDisposable
     {
         public NativeArray<BlockType> Blocks;
-        public int Size;
+        public readonly int Size;
+        public readonly int PaddedSize;
+        public readonly int StrideX;
+        public readonly int StrideY;
+        public readonly int StrideZ;
+        public readonly int PaddedStrideX;
+        public readonly int PaddedStrideY;
+        public readonly int PaddedStrideZ;
+
+        public ChunkMeshInput(int size)
+        {
+            Size = size;
+            PaddedSize = size + 2;
+
+            StrideX = 1;
+            StrideY = size;
+            StrideZ = size * size;
+
+            PaddedStrideX = 1;
+            PaddedStrideY = PaddedSize;
+            PaddedStrideZ = PaddedSize * PaddedSize;
+
+            Blocks = new NativeArray<BlockType>(PaddedSize * PaddedSize * PaddedSize, Allocator.TempJob);
+        }
 
         public bool IsInRange(int x, int y, int z)
-        { 
+        {
             return x >= -1 && y >= -1 && z >= -1 &&
                 x <= Size && y <= Size && z <= Size;
         }
@@ -20,6 +44,12 @@ namespace VoxelEngine
         public bool IsInRange(Vector3Int pos)
         {
             return IsInRange(pos.x, pos.y, pos.z);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public int ToPaddedIndexRaw(int x, int y, int z)
+        {
+            return (x + 1) * PaddedStrideX + (y + 1) * PaddedStrideY + (z + 1) * PaddedStrideZ;
         }
 
         public int ToPaddedIndex(int x, int y, int z)
@@ -62,6 +92,12 @@ namespace VoxelEngine
         public BlockType GetBlock(Vector3Int pos)
         {
             return GetBlock(pos.x, pos.y, pos.z);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public BlockType GetBlockRaw(int x, int y, int z)
+        {
+            return Blocks[ToPaddedIndexRaw(x, y, z)];
         }
 
         public bool IsSolid(int x, int y, int z)
@@ -137,6 +173,11 @@ namespace VoxelEngine
 
                 int index = ToFlatIndex(x, y, z);
                 return _blocks[index];
+            }
+
+            public Voxel GetBlockRaw(int x, int y, int z)
+            {
+                return _blocks[x + y * _strideY + z * _strideZ];
             }
 
             public Voxel GetBlock(Vector3Int pos)
@@ -360,31 +401,44 @@ namespace VoxelEngine
 
         public ChunkMeshInput CreateMeshInput(Vector3Int chunkCoord)
         {
-            ChunkMeshInput input = new();
-            int chunkSize = VoxelStatics.ChunkSize;
-            int blockCount = (chunkSize + 2) * (chunkSize + 2) * (chunkSize + 2);
-
-            input.Size = chunkSize;
-
             if (TryGetChunk(chunkCoord, out Chunk chunk))
             {
-                input.Blocks = new NativeArray<BlockType>(blockCount, Allocator.TempJob);
+                int chunkSize = VoxelStatics.ChunkSize; 
+                ChunkMeshInput input = new(chunkSize);
 
-                for (int x = -1; x <= chunkSize; x++)
+                Chunk[,,] neighbors = new Chunk[3, 3, 3];
+
+                for (int x = -1; x <= 1; x++)
                 {
+                    for (int y = -1; y <= 1; y++)
+                    {
+                        for (int z = -1; z <= 1; z++)
+                        {
+                            TryGetChunk(new Vector3Int(chunkCoord.x + x, chunkCoord.y + y, chunkCoord.z + z), out neighbors[x + 1, y + 1, z + 1]);
+                        }
+                    }
+                }
+
+                for (int z = -1; z <= chunkSize; z++)
+                {
+                    int pz = z + 1;
                     for (int y = -1; y <= chunkSize; y++)
                     {
-                        for (int z = -1; z <= chunkSize; z++)
+                        int py = y + 1;
+
+                        for (int x = -1; x <= chunkSize; x++)
                         {
-                            int index = input.ToPaddedIndex(x, y, z);
+                            int px = x + 1;
+
+                            int index = px * input.PaddedStrideX + py * input.PaddedStrideY + pz * input.PaddedStrideZ;
 
                             if (x >= 0 && y >= 0 && z >= 0 && x < chunkSize && y < chunkSize && z < chunkSize)
                             {
-                                input.Blocks[index] = chunk.GetBlock(x, y, z).Type;
+                                input.Blocks[index] = chunk.GetBlockRaw(x, y, z).Type;
                             }
                             else
                             {
-                                Vector3Int neighborCoord = chunkCoord;
+                                Vector3Int neighborCoord = Vector3Int.zero;
 
                                 int neighborLocalX = x;
                                 int neighborLocalY = y;
@@ -405,7 +459,7 @@ namespace VoxelEngine
                                 {
                                     neighborCoord.y -= 1;
                                     neighborLocalY = chunkSize - 1;
-                                } 
+                                }
                                 else if (y == chunkSize)
                                 {
                                     neighborCoord.y += 1;
@@ -423,9 +477,10 @@ namespace VoxelEngine
                                     neighborLocalZ = 0;
                                 }
 
-                                if (TryGetChunk(neighborCoord, out Chunk neighbor))
+                                Chunk neighbor = neighbors[neighborCoord.x + 1, neighborCoord.y + 1, neighborCoord.z + 1];
+                                if (neighbor != null)
                                 {
-                                    input.Blocks[index] = neighbor.GetBlock(neighborLocalX, neighborLocalY, neighborLocalZ).Type;
+                                    input.Blocks[index] = neighbor.GetBlockRaw(neighborLocalX, neighborLocalY, neighborLocalZ).Type;
                                 }
                                 else
                                 {
@@ -436,9 +491,10 @@ namespace VoxelEngine
                     }
                 }
 
+                return input;
             }
 
-            return input;
+            return new ChunkMeshInput();
         }
 
     }

@@ -235,7 +235,7 @@ namespace VoxelEngine
             }
             
             Ray ray = _mainCamera.ScreenPointToRay(screenPos);
-            if (Physics.Raycast(ray, out hit, 100.0f))
+            if (Physics.Raycast(ray, out hit, 2000.0f))
             {
                 return true;
             }
