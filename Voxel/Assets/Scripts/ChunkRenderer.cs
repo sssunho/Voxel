@@ -2,10 +2,6 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 using Unity.Profiling;
-using Unity.Jobs;
-using Unity.Collections;
-using Unity.Burst;
-using static VoxelEngine.MeshBuilder;
 
 namespace VoxelEngine
 {
@@ -345,6 +341,11 @@ namespace VoxelEngine
                 Destroy(_mesh);
                 _mesh = null;
             }
+
+            if (_mesher != null)
+            {
+                _mesher.Dispose();
+            }
         }
 
         public void Initialize(VoxelWorld world, Vector3Int chunkCoord)
@@ -432,9 +433,6 @@ namespace VoxelEngine
             mesh.SetUVs(0, meshBuildData.UVs);
             mesh.SetUVs(1, meshBuildData.UV2s);
 
-            mesh.RecalculateNormals();
-            mesh.RecalculateBounds();
-
             return mesh;
         }
 
@@ -452,6 +450,5 @@ namespace VoxelEngine
                 _mesh = null;
             }
         }
-
     }
 }
