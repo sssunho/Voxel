@@ -151,9 +151,6 @@ namespace VoxelEngine
             }
         }
 
-        ProfilerMarker A = new ProfilerMarker("BitGreedyMesher.A");
-        ProfilerMarker B = new ProfilerMarker("BitGreedyMesher.B");
-
         void GreedyMeshPlane(ChunkMeshInput meshInput, PlaneDesc desc, MeshBuildData meshBuildData)
         {
             int typeStride = meshInput.PaddedSize;
@@ -166,78 +163,72 @@ namespace VoxelEngine
             {
                 int usedTypeCount = 0;
 
-                using (A.Auto())
+                for (int u = 1; u <= meshInput.Size; u++)
                 {
-                    for (int u = 1; u <= meshInput.Size; u++)
+                    int visibleIndex = visibleFaceBase + u * meshInput.PaddedSize;
+
+                    for (int v = 1; v <= meshInput.Size; v++)
                     {
-                        int visibleIndex = visibleFaceBase + u * meshInput.PaddedSize;
+                        ulong visibleCol = _visible[visibleIndex + v];
 
-                        for (int v = 1; v <= meshInput.Size; v++)
+                        if ((visibleCol & (1UL << n)) == 0)
                         {
-                            ulong visibleCol = _visible[visibleIndex + v];
-
-                            if ((visibleCol & (1UL << n)) == 0)
-                            {
-                                continue;
-                            }
-
-                            int blockIndex = u * desc.PaddedUStride + v * desc.PaddedVStride + n * desc.PaddedNStride;
-                            BlockType type = meshInput.Blocks[blockIndex];
-
-                            if (type == BlockType.Air)
-                            {
-                                continue;
-                            }
-
-                            if (!_typeUsed[(int)type])
-                            {
-                                _typeUsed[(int)type] = true;
-                                _usedTypes[usedTypeCount++] = (int)type;
-                            }
-
-                            _planeMask[(int)type * typeStride + u] |= 1UL << v;
+                            continue;
                         }
+
+                        int blockIndex = u * desc.PaddedUStride + v * desc.PaddedVStride + n * desc.PaddedNStride;
+                        BlockType type = meshInput.Blocks[blockIndex];
+
+                        if (type == BlockType.Air)
+                        {
+                            continue;
+                        }
+
+                        if (!_typeUsed[(int)type])
+                        {
+                            _typeUsed[(int)type] = true;
+                            _usedTypes[usedTypeCount++] = (int)type;
+                        }
+
+                        _planeMask[(int)type * typeStride + u] |= 1UL << v;
                     }
                 }
 
-                using (B.Auto())
+                for (int i = 0; i < usedTypeCount; i++)
                 {
-                    for (int i = 0; i < usedTypeCount; i++)
+                    int typeID = _usedTypes[i];
+                    int typeBase = typeID * typeStride;
+
+                    for (int startU = 1; startU <= meshInput.Size; startU++)
                     {
-                        int typeID = _usedTypes[i];
-                        int typeBase = typeID * typeStride;
+                        ulong row = _planeMask[typeBase + startU];
 
-                        for (int startU = 1; startU <= meshInput.Size; startU++)
+                        while (row != 0)
                         {
-                            ulong row = _planeMask[typeBase + startU];
+                            int startV = math.tzcnt(row);
+                            int sizeV = math.tzcnt(~(row >> startV));
 
-                            while (row != 0)
+                            ulong quadMask = ((1UL << sizeV) - 1UL) << startV;
+
+                            int sizeU = 1;
+                            while (startU + sizeU <= meshInput.Size) // padded 좌표계 이므로 size 도 포함해야함
                             {
-                                int startV = math.tzcnt(row);
-                                int sizeV = math.tzcnt(~(row >> startV));
-
-                                ulong quadMask = ((1UL << sizeV) - 1UL) << startV;
-
-                                int sizeU = 1;
-                                while (startU + sizeU <= meshInput.Size) // padded 좌표계 이므로 size 도 포함해야함
+                                if ((quadMask & _planeMask[typeBase + (startU + sizeU)]) != quadMask)
                                 {
-                                    if ((quadMask & _planeMask[typeBase + (startU + sizeU)]) != quadMask)
-                                    {
-                                        break;
-                                    }
-
-                                    sizeU++;
+                                    break;
                                 }
 
-                                AddQuad(desc, startU, startV, n, sizeU, sizeV, meshBuildData, (BlockType)_usedTypes[i]);
-
-                                for (int k = 0; k < sizeU; k++)
-                                {
-                                    _planeMask[typeBase + (startU + k)] &= ~quadMask;
-                                }
-
-                                row = _planeMask[typeBase + startU];
+                                sizeU++;
                             }
+
+                            AddQuad(desc, startU, startV, n, sizeU, sizeV, meshBuildData, (BlockType)_usedTypes[i]);
+
+                            for (int k = 0; k < sizeU; k++)
+                            {
+                                _planeMask[typeBase + (startU + k)] &= ~quadMask;
+                            }
+
+                            row = _planeMask[typeBase + startU];
                         }
                     }
                 }
