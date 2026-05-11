@@ -1,12 +1,151 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
+using Unity.Burst;
 using Unity.Collections;
-using Unity.Mathematics;
+using Unity.Jobs;
+using UnityEditor.Build;
 using UnityEngine;
+using UnityEngine.UIElements;
 
 namespace VoxelEngine
 {
+    [BurstCompile]
+    public struct CreateChunkMeshInputJob : IJobFor
+    {
+        [ReadOnly] public NativeArray<Voxel> Source;
+        [ReadOnly] public NativeArray<Voxel> NeighborPX;
+        [ReadOnly] public NativeArray<Voxel> NeighborNX;
+        [ReadOnly] public NativeArray<Voxel> NeighborPY;
+        [ReadOnly] public NativeArray<Voxel> NeighborNY;
+        [ReadOnly] public NativeArray<Voxel> NeighborPZ;
+        [ReadOnly] public NativeArray<Voxel> NeighborNZ;
+        
+        public NativeArray<BlockType> Output;
+
+        public bool ExistNeighborNX;
+        public bool ExistNeighborPX;
+        public bool ExistNeighborNY;
+        public bool ExistNeighborPY;
+        public bool ExistNeighborNZ;
+        public bool ExistNeighborPZ;
+
+        public int Size;
+        public int PaddedSize;
+
+        public void Execute(int index)
+        {
+            int px = index % PaddedSize;
+            int py = (index / PaddedSize) % PaddedSize;
+            int pz = index / (PaddedSize * PaddedSize);
+
+            int x = px - 1;
+            int y = py - 1;
+            int z = pz - 1;
+
+            bool neighborNX = x < 0;
+            bool neighborPX = x == Size;
+            bool neighborNY = y < 0;
+            bool neighborPY = y == Size;
+            bool neighborNZ = z < 0;
+            bool neighborPZ = z == Size;
+
+            int neighborCount = 0;
+            if (neighborNX || neighborPX)
+            {
+                neighborCount++;
+            }
+
+            if (neighborNY || neighborPY)
+            {
+                neighborCount++;
+            }
+
+            if (neighborNZ || neighborPZ)
+            {
+                neighborCount++;
+            }
+
+            if (neighborCount == 0)
+            {
+                Output[index] = Source[x + y * Size + z * Size * Size].Type;
+            }
+            else if (neighborCount == 1)
+            {
+                if (neighborNX)
+                {
+                    if (ExistNeighborNX)
+                    {
+                        Output[index] = NeighborNX[(Size - 1) + y * Size + z * Size * Size].Type;
+                    }
+                    else
+                    {
+                        Output[index] = BlockType.Air;
+                    }
+                }
+                else if (neighborPX)
+                {
+                    if (ExistNeighborPX)
+                    {
+                        Output[index] = NeighborPX[0 + y * Size + z * Size * Size].Type;
+                    }
+                    else
+                    {
+                        Output[index] = BlockType.Air;
+                    }
+                }
+                else if (neighborNY)
+                {
+                    if (ExistNeighborNY)
+                    {
+                        Output[index] = NeighborNY[x + (Size - 1) * Size + z * Size * Size].Type;
+                    }
+                    else
+                    {
+                        Output[index] = BlockType.Air;
+                    }
+                }
+                else if (neighborPY)
+                {
+                    if (ExistNeighborPY)
+                    {
+                        Output[index] = NeighborPY[x + 0 * Size + z * Size * Size].Type;
+                    }
+                    else
+                    {
+                        Output[index] = BlockType.Air;
+                    }
+                }
+                else if (neighborNZ)
+                {
+                    if (ExistNeighborNZ)
+                    {
+                        Output[index] = NeighborNZ[x + y * Size + (Size - 1) * Size * Size].Type;
+                    }
+                    else
+                    {
+                        Output[index] = BlockType.Air;
+                    }
+                }
+                else if (neighborPZ)
+                {
+                    if (ExistNeighborPZ)
+                    {
+                        Output[index] = NeighborPZ[x + y * Size + 0 * Size * Size].Type;
+                    }
+                    else
+                    {
+                        Output[index] = BlockType.Air;
+                    }
+                }
+            }
+            else
+            {
+                Output[index] = BlockType.Air;
+            }
+        }
+    }
+
     public struct ChunkMeshInput : IDisposable
     {
         public NativeArray<BlockType> Blocks;
@@ -119,14 +258,19 @@ namespace VoxelEngine
         }
     }
 
-    public class VoxelWorld
+    public class VoxelWorld : IDisposable
     {
-        class Chunk
+        class Chunk : IDisposable
         {
-            readonly Voxel[] _blocks = new Voxel[VoxelStatics.ChunkSize * VoxelStatics.ChunkSize * VoxelStatics.ChunkSize];
+            public NativeArray<Voxel> _blocks;
 
             readonly int _strideY = VoxelStatics.ChunkSize;
             readonly int _strideZ = VoxelStatics.ChunkSize * VoxelStatics.ChunkSize;
+
+            public Chunk()
+            {
+                _blocks = new NativeArray<Voxel>(VoxelStatics.ChunkSize * VoxelStatics.ChunkSize * VoxelStatics.ChunkSize, Allocator.Persistent);
+            }
 
             public bool IsSolid(Vector3Int pos)
             {
@@ -156,7 +300,9 @@ namespace VoxelEngine
 
                 if (_blocks[index].Type != type)
                 {
-                    _blocks[index].Type = type;
+                    Voxel block = _blocks[index];
+                    block.Type = type;
+                    _blocks[index] = block;
                     return true;
                 }
 
@@ -190,20 +336,36 @@ namespace VoxelEngine
                 return GetBlock(x, y, z).Type;
             }
 
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
             public int ToFlatIndex(int x, int y, int z)
             {
                 return x + y * _strideY + z * _strideZ;
             }
 
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
             public int ToFlatIndex(Vector3Int pos)
             {
                 return ToFlatIndex(pos.x, pos.y, pos.z);
             }
 
+            public void Dispose()
+            {
+                if (_blocks.IsCreated)
+                {
+                    _blocks.Dispose();
+                }
+            }
         }
 
         readonly Dictionary<Vector3Int, Chunk> _chunks = new();
         readonly HashSet<Vector3Int> _dirtyChunks = new();
+
+        NativeArray<Voxel> _emptyBlockArray;
+
+        public VoxelWorld()
+        {
+            _emptyBlockArray = new NativeArray<Voxel>(0, Allocator.Persistent);
+        }
 
         bool TryGetChunk(Vector3Int pos, out Chunk chunk)
         {
@@ -399,97 +561,45 @@ namespace VoxelEngine
             return res;
         }
 
-        public ChunkMeshInput CreateMeshInput(Vector3Int chunkCoord)
+        public ChunkMeshInput CreateChunkMeshInput(Vector3Int chunkCoord)
         {
             if (TryGetChunk(chunkCoord, out Chunk chunk))
             {
                 int chunkSize = VoxelStatics.ChunkSize; 
                 ChunkMeshInput input = new(chunkSize);
 
-                Chunk[,,] neighbors = new Chunk[3, 3, 3];
+                bool existNX = TryGetChunk(chunkCoord + Vector3Int.left, out Chunk neighborNX);
+                bool existPX = TryGetChunk(chunkCoord + Vector3Int.right, out Chunk neighborPX);
+                bool existNY = TryGetChunk(chunkCoord + Vector3Int.down, out Chunk neighborNY);
+                bool existPY = TryGetChunk(chunkCoord + Vector3Int.up, out Chunk neighborPY);
+                bool existNZ = TryGetChunk(chunkCoord + Vector3Int.back, out Chunk neighborNZ);
+                bool existPZ = TryGetChunk(chunkCoord + Vector3Int.forward, out Chunk neighborPZ);
 
-                for (int x = -1; x <= 1; x++)
+                CreateChunkMeshInputJob job = new CreateChunkMeshInputJob()
                 {
-                    for (int y = -1; y <= 1; y++)
-                    {
-                        for (int z = -1; z <= 1; z++)
-                        {
-                            TryGetChunk(new Vector3Int(chunkCoord.x + x, chunkCoord.y + y, chunkCoord.z + z), out neighbors[x + 1, y + 1, z + 1]);
-                        }
-                    }
-                }
+                    Output = input.Blocks,
+                    Size = input.Size,
+                    PaddedSize = input.PaddedSize,
 
-                for (int z = -1; z <= chunkSize; z++)
-                {
-                    int pz = z + 1;
-                    for (int y = -1; y <= chunkSize; y++)
-                    {
-                        int py = y + 1;
+                    Source = chunk._blocks,
 
-                        for (int x = -1; x <= chunkSize; x++)
-                        {
-                            int px = x + 1;
+                    NeighborNX = existNX ? neighborNX._blocks : _emptyBlockArray,
+                    NeighborPX = existPX ? neighborPX._blocks : _emptyBlockArray,
+                    NeighborNY = existNY ? neighborNY._blocks : _emptyBlockArray,
+                    NeighborPY = existPY ? neighborPY._blocks : _emptyBlockArray,
+                    NeighborNZ = existNZ ? neighborNZ._blocks : _emptyBlockArray,
+                    NeighborPZ = existPZ ? neighborPZ._blocks : _emptyBlockArray,
 
-                            int index = px * input.PaddedStrideX + py * input.PaddedStrideY + pz * input.PaddedStrideZ;
+                    ExistNeighborNX = existNX,
+                    ExistNeighborPX = existPX,
+                    ExistNeighborNY = existNY,
+                    ExistNeighborPY = existPY,
+                    ExistNeighborNZ = existNZ,
+                    ExistNeighborPZ = existPZ,
+                };
 
-                            if (x >= 0 && y >= 0 && z >= 0 && x < chunkSize && y < chunkSize && z < chunkSize)
-                            {
-                                input.Blocks[index] = chunk.GetBlockRaw(x, y, z).Type;
-                            }
-                            else
-                            {
-                                Vector3Int neighborCoord = Vector3Int.zero;
-
-                                int neighborLocalX = x;
-                                int neighborLocalY = y;
-                                int neighborLocalZ = z;
-
-                                if (x == -1)
-                                {
-                                    neighborCoord.x -= 1;
-                                    neighborLocalX = chunkSize - 1;
-                                }
-                                else if (x == chunkSize)
-                                {
-                                    neighborCoord.x += 1;
-                                    neighborLocalX = 0;
-                                }
-
-                                if (y == -1)
-                                {
-                                    neighborCoord.y -= 1;
-                                    neighborLocalY = chunkSize - 1;
-                                }
-                                else if (y == chunkSize)
-                                {
-                                    neighborCoord.y += 1;
-                                    neighborLocalY = 0;
-                                }
-
-                                if (z == -1)
-                                {
-                                    neighborCoord.z -= 1;
-                                    neighborLocalZ = chunkSize - 1;
-                                }
-                                else if (z == chunkSize)
-                                {
-                                    neighborCoord.z += 1;
-                                    neighborLocalZ = 0;
-                                }
-
-                                Chunk neighbor = neighbors[neighborCoord.x + 1, neighborCoord.y + 1, neighborCoord.z + 1];
-                                if (neighbor != null)
-                                {
-                                    input.Blocks[index] = neighbor.GetBlockRaw(neighborLocalX, neighborLocalY, neighborLocalZ).Type;
-                                }
-                                else
-                                {
-                                    input.Blocks[index] = BlockType.Air;
-                                }
-                            }
-                        }
-                    }
-                }
+                JobHandle handle = job.ScheduleParallel(input.Blocks.Length, 64, default);
+                handle.Complete();
 
                 return input;
             }
@@ -497,5 +607,19 @@ namespace VoxelEngine
             return new ChunkMeshInput();
         }
 
+        public void Dispose()
+        {
+            if (_emptyBlockArray.IsCreated)
+            {
+                _emptyBlockArray.Dispose();
+            }
+
+            foreach (var pv in _chunks)
+            {
+                pv.Value.Dispose();
+            }
+
+            _chunks.Clear();
+        }
     }
 }

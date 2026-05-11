@@ -17,5 +17,13 @@ namespace VoxelEngine
         {
             _world = new();
         }
+
+        void OnDestroy()
+        {
+            if (_world != null)
+            {
+                _world.Dispose();
+            }
+        }
     }
 }

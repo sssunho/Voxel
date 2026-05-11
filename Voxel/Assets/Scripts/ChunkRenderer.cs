@@ -169,8 +169,6 @@ namespace VoxelEngine
 
         static readonly int[] FaceTriangles = { 0, 1, 2, 0, 2, 3 };
 
-        static readonly int DefaultQuadCapacity = 2048;
-
         static bool[] _greedyMaskBuffer = new bool[VoxelStatics.ChunkSize * VoxelStatics.ChunkSize];
 
         public static void AddQuad(Axis normal, Axis u, Axis v, bool isNegativeNormal, Vector3 position, int width, int height, MeshBuildData meshBuildData, BlockType type)
@@ -368,7 +366,7 @@ namespace VoxelEngine
                     return;
                 }
 
-                using (ChunkMeshInput input = CreateMeshInput())
+                using (ChunkMeshInput input = CreateChunkMeshInput())
                 {
                     MeshBuildData meshBuildData = CreateMeshBuildData(input);
                     ApplyMeshData(meshBuildData);
@@ -418,17 +416,11 @@ namespace VoxelEngine
             return meshBuildData;
         }
 
-        ProfilerMarker CreateMeshInputMarker = new ProfilerMarker("ChunkRenderer.CreateMeshInput");
-
-        private ChunkMeshInput CreateMeshInput()
+        private ChunkMeshInput CreateChunkMeshInput()
         {
-            using (CreateMeshInputMarker.Auto())
-            {
-                ChunkMeshInput input;
-                input = _world.CreateMeshInput(_chunkCoord);
-                return input;
-            }
-
+            ChunkMeshInput input;
+            input = _world.CreateChunkMeshInput(_chunkCoord);
+            return input;
         }
 
         Mesh CreateMesh(MeshBuildData meshBuildData)
