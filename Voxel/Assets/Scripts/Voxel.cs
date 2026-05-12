@@ -34,7 +34,7 @@ namespace VoxelEngine
 
     public static class VoxelStatics
     {
-        public const int ChunkSize = 1 << 5;
+        public const int ChunkSize = 1 << 4;
     }
 
 }

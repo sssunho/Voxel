@@ -1,6 +1,5 @@
 using System;
 using System.Collections;
-using Unity.Profiling;
 using UnityEngine;
 using VoxelEngine;
 
@@ -18,6 +17,7 @@ public enum TestMapSize
     Size64 = 64,
     Size128 = 128,
     Size256 = 256,
+    Size512 = 512,
 }
 
 public class MapGenerator : MonoBehaviour
@@ -51,11 +51,12 @@ public class MapGenerator : MonoBehaviour
 
     IEnumerator StartDelayCoroutine()
     {
-        yield return null;
-        yield return null;
-        yield return null;
-        yield return null;
-        yield return null;
+        int delayFrameCount = 5;
+        while (delayFrameCount > 0)
+        {
+            yield return null;
+            delayFrameCount--;
+        }
 
         GenerateMap();
     }

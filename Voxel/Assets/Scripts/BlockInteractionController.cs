@@ -12,6 +12,9 @@ namespace VoxelEngine
         [SerializeField]
         float _removeDelay = 0.1f;
 
+        [SerializeField]
+        float _raycastDistance = 2000.0f;
+
         Camera _mainCamera;
 
         float _removeTime = 0.0f;
@@ -213,7 +216,8 @@ namespace VoxelEngine
 
             if (TryGetRayHitOnMousePosition(mousePos, out RaycastHit hit))
             {
-                Vector3 modifiedPos = hit.point - 0.001f * hit.normal;
+                float raycastOffset = 0.001f;
+                Vector3 modifiedPos = hit.point - raycastOffset * hit.normal;
                 Vector3Int voxelPos = VoxelWorld.WorldToVoxelCoord(modifiedPos);
                 if (voxelPos.y == 0)
                 {
@@ -235,7 +239,7 @@ namespace VoxelEngine
             }
             
             Ray ray = _mainCamera.ScreenPointToRay(screenPos);
-            if (Physics.Raycast(ray, out hit, 2000.0f))
+            if (Physics.Raycast(ray, out hit, _raycastDistance))
             {
                 return true;
             }

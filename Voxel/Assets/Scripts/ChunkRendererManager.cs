@@ -16,6 +16,12 @@ namespace VoxelEngine
         [SerializeField] int _maxRebuildPerFrame = 4;
 
         VoxelWorld _world;
+        BitGreedyMesher _mesher;
+
+        void Awake()
+        {
+            _mesher = new();
+        }
 
         void Start()
         {
@@ -65,7 +71,7 @@ namespace VoxelEngine
 
                 if (_renderers.TryGetValue(chunkCoord, out ChunkRenderer renderer))
                 {
-                    renderer.RebuildMesh();
+                    renderer.RebuildMesh(_mesher);
                     continue;
                 }
 
@@ -73,6 +79,7 @@ namespace VoxelEngine
                 newRenderer.transform.position = VoxelWorld.ChunkToWorldOrigin(chunkCoord);
                 newRenderer.name = $"Chunk({chunkCoord})";
                 newRenderer.Initialize(_world, chunkCoord);
+                newRenderer.RebuildMesh(_mesher);
 
                 _renderers.Add(chunkCoord, newRenderer);
             }
@@ -103,6 +110,15 @@ namespace VoxelEngine
             //ChunkRenderer renderer = _deactivateRenderers[_deactivateRenderers.Count - 1];
             //_deactivateRenderers.RemoveAt(_deactivateRenderers.Count - 1);
             //return renderer;
+        }
+
+        void OnDestroy()
+        {
+            if (_mesher != null)
+            {
+                _mesher.Dispose();
+                _mesher = null;
+            }
         }
     }
 

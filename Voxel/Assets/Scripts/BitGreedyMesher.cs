@@ -51,10 +51,12 @@ namespace VoxelEngine
         ProfilerMarker AxisColMarker = new ProfilerMarker("BitGreedyMesher.AxisCol");
         ProfilerMarker MaskMarker = new ProfilerMarker("BitGreedyMesher.BuildMask");
         ProfilerMarker GreedyMarker = new ProfilerMarker("BitGreedyMesher.Greedy");
+        ProfilerMarker AllocMarker = new ProfilerMarker("BitGreedyMesher.Alloc");
+        MeshBuildData BuildData = new MeshBuildData(2048 * 4, 2048 * 6);
 
         public MeshBuildData BuildMesh(ChunkMeshInput meshInput)
         {
-            MeshBuildData meshBuildData = new MeshBuildData(2048 * 4, 2048 * 6);
+            BuildData.Clear();
 
             using (AxisColMarker.Auto())
             {
@@ -70,11 +72,11 @@ namespace VoxelEngine
             {
                 for (int i = 0; i < PlaneDesc.BitPlaneDescs.Length; i++)
                 {
-                    GreedyMeshPlane(meshInput, PlaneDesc.BitPlaneDescs[i], meshBuildData);
+                    GreedyMeshPlane(meshInput, PlaneDesc.BitPlaneDescs[i], BuildData);
                 }
             }
 
-            return meshBuildData;
+            return BuildData;
         }
 
         void CreateAxisCol(ChunkMeshInput meshInput)
@@ -111,15 +113,18 @@ namespace VoxelEngine
                 StrideN = length,
             };
 
-            JobHandle xhandle = xjob.ScheduleParallel(length, 32, default);
-            JobHandle yhandle = yjob.ScheduleParallel(length, 32, default);
-            JobHandle zhandle = zjob.ScheduleParallel(length, 32, default);
+            int batchSize = 32;
+            JobHandle xhandle = xjob.ScheduleParallel(length, batchSize, default);
+            JobHandle yhandle = yjob.ScheduleParallel(length, batchSize, default);
+            JobHandle zhandle = zjob.ScheduleParallel(length, batchSize, default);
 
             JobHandle.CombineDependencies(xhandle, yhandle, zhandle).Complete();
         }
 
         void CreateVisibleMask(ChunkMeshInput meshInput)
         {
+            Array.Clear(_visible, 0, _visible.Length);
+
             int axisStride = meshInput.PaddedSize * meshInput.PaddedSize;
             int stride = meshInput.PaddedSize;
 
@@ -136,16 +141,30 @@ namespace VoxelEngine
                     axisCol = _axisColZ;
                 }
 
+                int negativeBase = (2 * axis + 0) * axisStride;
+                int positiveBase = (2 * axis + 1) * axisStride;
+
                 for (int u = 0; u < meshInput.PaddedSize; u++)
                 {
                     for (int v = 0; v < meshInput.PaddedSize; v++)
                     {
-                        int ni = (2 * axis + 0) * axisStride + u * stride + v;
-                        int pi = (2 * axis + 1) * axisStride + u * stride + v;
                         ulong col = axisCol[u * stride + v];
+                        ulong pVisible = col & ~(col >> 1);
+                        ulong nVisible = col & ~(col << 1);
 
-                        _visible[pi] = col & ~(col >> 1);
-                        _visible[ni] = col & ~(col << 1);
+                        while (pVisible != 0)
+                        {
+                            int n = math.tzcnt(pVisible);
+                            pVisible &= pVisible - 1;
+                            _visible[positiveBase + n * stride + u] |= 1UL << v;
+                        }
+
+                        while (nVisible != 0)
+                        {
+                            int n = math.tzcnt(nVisible);
+                            nVisible &= nVisible - 1;
+                            _visible[negativeBase + n * stride + u] |= 1UL << v;
+                        }
                     }
                 }
             }
@@ -156,6 +175,7 @@ namespace VoxelEngine
             int typeStride = meshInput.PaddedSize;
             int np = desc.IsNegative ? 0 : 1;
             int visibleFaceBase = (2 * (int)desc.Normal + np) * meshInput.PaddedSize * meshInput.PaddedSize;
+            ulong validFaceBits = ((1UL << meshInput.Size) - 1UL) << 1;
 
             Array.Clear(_planeMask, 0, _planeMask.Length);
 
@@ -165,16 +185,13 @@ namespace VoxelEngine
 
                 for (int u = 1; u <= meshInput.Size; u++)
                 {
-                    int visibleIndex = visibleFaceBase + u * meshInput.PaddedSize;
+                    int visibleIndex = visibleFaceBase + n * meshInput.PaddedSize + u;
+                    ulong visibleRow = _visible[visibleIndex] & validFaceBits;
 
-                    for (int v = 1; v <= meshInput.Size; v++)
+                    while (visibleRow != 0)
                     {
-                        ulong visibleCol = _visible[visibleIndex + v];
-
-                        if ((visibleCol & (1UL << n)) == 0)
-                        {
-                            continue;
-                        }
+                        int v = math.tzcnt(visibleRow);
+                        visibleRow &= visibleRow - 1;
 
                         int blockIndex = u * desc.PaddedUStride + v * desc.PaddedVStride + n * desc.PaddedNStride;
                         BlockType type = meshInput.Blocks[blockIndex];
@@ -222,13 +239,13 @@ namespace VoxelEngine
                             }
 
                             AddQuad(desc, startU, startV, n, sizeU, sizeV, meshBuildData, (BlockType)_usedTypes[i]);
-
                             for (int k = 0; k < sizeU; k++)
                             {
                                 _planeMask[typeBase + (startU + k)] &= ~quadMask;
                             }
 
                             row = _planeMask[typeBase + startU];
+
                         }
                     }
                 }

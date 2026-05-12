@@ -4,9 +4,7 @@ using System.Runtime.CompilerServices;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Jobs;
-using UnityEditor.Build;
 using UnityEngine;
-using UnityEngine.UIElements;
 
 namespace VoxelEngine
 {
@@ -174,81 +172,6 @@ namespace VoxelEngine
             Blocks = new NativeArray<BlockType>(PaddedSize * PaddedSize * PaddedSize, Allocator.TempJob);
         }
 
-        public bool IsInRange(int x, int y, int z)
-        {
-            return x >= -1 && y >= -1 && z >= -1 &&
-                x <= Size && y <= Size && z <= Size;
-        }
-
-        public bool IsInRange(Vector3Int pos)
-        {
-            return IsInRange(pos.x, pos.y, pos.z);
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public int ToPaddedIndexRaw(int x, int y, int z)
-        {
-            return (x + 1) * PaddedStrideX + (y + 1) * PaddedStrideY + (z + 1) * PaddedStrideZ;
-        }
-
-        public int ToPaddedIndex(int x, int y, int z)
-        {
-            if (IsInRange(x, y, z) == false)
-            {
-                return -1;
-            }
-
-            int Padded = Size + 2;
-
-            return (x + 1) + (y + 1) * Padded + (z + 1) * Padded * Padded;
-        }
-
-        public int ToPaddedIndex(Vector3Int pos)
-        {
-            return ToPaddedIndex(pos.x, pos.y, pos.z);
-        }
-
-        public BlockType GetBlock(int index)
-        {
-            if (index >= 0 && index < Blocks.Length)
-            {
-                return Blocks[index];
-            }
-
-            return BlockType.Air;
-        }
-
-        public BlockType GetBlock(int x, int y, int z)
-        {
-            int idx = ToPaddedIndex(x, y, z);
-
-            if (idx < 0)
-                return BlockType.Air;
-
-            return Blocks[idx];
-        }
-
-        public BlockType GetBlock(Vector3Int pos)
-        {
-            return GetBlock(pos.x, pos.y, pos.z);
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public BlockType GetBlockRaw(int x, int y, int z)
-        {
-            return Blocks[ToPaddedIndexRaw(x, y, z)];
-        }
-
-        public bool IsSolid(int x, int y, int z)
-        {
-            return GetBlock(x, y, z) != BlockType.Air;
-        }
-
-        public bool IsSolid(Vector3Int pos)
-        {
-            return IsSolid(pos.x, pos.y, pos.z);
-        }
-
         public void Dispose()
         {
             if (Blocks.IsCreated)
@@ -262,10 +185,12 @@ namespace VoxelEngine
     {
         class Chunk : IDisposable
         {
-            public NativeArray<Voxel> _blocks;
+            NativeArray<Voxel> _blocks;
 
             readonly int _strideY = VoxelStatics.ChunkSize;
             readonly int _strideZ = VoxelStatics.ChunkSize * VoxelStatics.ChunkSize;
+
+            public NativeArray<Voxel> Blocks => _blocks;
 
             public Chunk()
             {
@@ -581,14 +506,14 @@ namespace VoxelEngine
                     Size = input.Size,
                     PaddedSize = input.PaddedSize,
 
-                    Source = chunk._blocks,
+                    Source = chunk.Blocks,
 
-                    NeighborNX = existNX ? neighborNX._blocks : _emptyBlockArray,
-                    NeighborPX = existPX ? neighborPX._blocks : _emptyBlockArray,
-                    NeighborNY = existNY ? neighborNY._blocks : _emptyBlockArray,
-                    NeighborPY = existPY ? neighborPY._blocks : _emptyBlockArray,
-                    NeighborNZ = existNZ ? neighborNZ._blocks : _emptyBlockArray,
-                    NeighborPZ = existPZ ? neighborPZ._blocks : _emptyBlockArray,
+                    NeighborNX = existNX ? neighborNX.Blocks : _emptyBlockArray,
+                    NeighborPX = existPX ? neighborPX.Blocks : _emptyBlockArray,
+                    NeighborNY = existNY ? neighborNY.Blocks : _emptyBlockArray,
+                    NeighborPY = existPY ? neighborPY.Blocks : _emptyBlockArray,
+                    NeighborNZ = existNZ ? neighborNZ.Blocks : _emptyBlockArray,
+                    NeighborPZ = existPZ ? neighborPZ.Blocks : _emptyBlockArray,
 
                     ExistNeighborNX = existNX,
                     ExistNeighborPX = existPX,
@@ -598,7 +523,8 @@ namespace VoxelEngine
                     ExistNeighborPZ = existPZ,
                 };
 
-                JobHandle handle = job.ScheduleParallel(input.Blocks.Length, 64, default);
+                int jobBatchSize = 64;
+                JobHandle handle = job.ScheduleParallel(input.Blocks.Length, jobBatchSize, default);
                 handle.Complete();
 
                 return input;

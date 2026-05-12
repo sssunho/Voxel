@@ -26,6 +26,14 @@ namespace VoxelEngine
             UVs = new List<Vector2>(vertexCapacity);
             UV2s = new List<Vector2>(vertexCapacity);
         }
+
+        public void Clear()
+        {
+            Vertices.Clear();
+            Triangles.Clear();
+            UVs.Clear();
+            UV2s.Clear();
+        }
     }
 
     public struct PlaneDesc
@@ -320,8 +328,6 @@ namespace VoxelEngine
 
         static readonly ProfilerMarker RebuildMeshMarker = new("ChunkRenderer.RebuildMesh");
 
-        BitGreedyMesher _mesher = new();
-
         void Awake()
         {
             _meshFilter = GetComponent<MeshFilter>();
@@ -332,6 +338,11 @@ namespace VoxelEngine
             {
                 _meshRenderer.sharedMaterial = _material;
             }
+
+            if (_meshCollider)
+            {
+                _meshCollider.cookingOptions = MeshColliderCookingOptions.None;
+            }
         }
 
         void OnDestroy()
@@ -341,22 +352,15 @@ namespace VoxelEngine
                 Destroy(_mesh);
                 _mesh = null;
             }
-
-            if (_mesher != null)
-            {
-                _mesher.Dispose();
-            }
         }
 
         public void Initialize(VoxelWorld world, Vector3Int chunkCoord)
         {
             _chunkCoord = chunkCoord;
             _world = world;
-
-            RebuildMesh();
         }
 
-        public void RebuildMesh()
+        public void RebuildMesh(BitGreedyMesher mesher)
         {
             using (RebuildMeshMarker.Auto())
             {
@@ -369,7 +373,7 @@ namespace VoxelEngine
 
                 using (ChunkMeshInput input = CreateChunkMeshInput())
                 {
-                    MeshBuildData meshBuildData = CreateMeshBuildData(input);
+                    MeshBuildData meshBuildData = CreateMeshBuildData(input, mesher);
                     ApplyMeshData(meshBuildData);
                 }
 
@@ -393,35 +397,46 @@ namespace VoxelEngine
                     _mesh.name = $"ChunkMesh_{gameObject.name}";
                 }
 
-                if (_meshFilter)
+                if (_mesh.vertices.Length > 0 && _mesh.triangles.Length > 0)
                 {
-                    _meshFilter.sharedMesh = _mesh;
-                }
+                    if (_meshFilter)
+                    {
+                        _meshFilter.sharedMesh = _mesh;
+                    }
 
-                if (_meshCollider)
-                {
-                    _meshCollider.sharedMesh = _mesh;
+                    if (_meshCollider)
+                    {
+                        _meshCollider.sharedMesh = _mesh;
+                    }
                 }
             }
         }
 
         ProfilerMarker BuildMeshMarker = new ProfilerMarker("ChunkRenderer.BuildMesh");
 
-        private MeshBuildData CreateMeshBuildData(ChunkMeshInput input)
+        private MeshBuildData CreateMeshBuildData(ChunkMeshInput input, BitGreedyMesher mesher)
         {
-            MeshBuildData meshBuildData;
+            MeshBuildData meshBuildData = default;
             using (BuildMeshMarker.Auto())
             {
-                meshBuildData = _mesher.BuildMesh(input);
+                if (mesher != null)
+                {
+                    meshBuildData = mesher.BuildMesh(input);
+                }
             }
             return meshBuildData;
         }
 
+        ProfilerMarker CreateMeshInputMarker = new ProfilerMarker("ChunkRenderer.CreateMeshInput");
+
         private ChunkMeshInput CreateChunkMeshInput()
         {
-            ChunkMeshInput input;
-            input = _world.CreateChunkMeshInput(_chunkCoord);
-            return input;
+            using (CreateMeshInputMarker.Auto())
+            {
+                ChunkMeshInput input;
+                input = _world.CreateChunkMeshInput(_chunkCoord);
+                return input;
+            }
         }
 
         Mesh CreateMesh(MeshBuildData meshBuildData)
@@ -432,6 +447,8 @@ namespace VoxelEngine
             mesh.SetTriangles(meshBuildData.Triangles, 0);
             mesh.SetUVs(0, meshBuildData.UVs);
             mesh.SetUVs(1, meshBuildData.UV2s);
+
+            mesh.RecalculateNormals();
 
             return mesh;
         }
@@ -446,8 +463,7 @@ namespace VoxelEngine
                 }
 
                 _meshFilter.sharedMesh = null;
-                Destroy(_mesh);
-                _mesh = null;
+                _mesh.Clear();
             }
         }
     }
