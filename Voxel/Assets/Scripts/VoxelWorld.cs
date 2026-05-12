@@ -273,6 +273,16 @@ namespace VoxelEngine
                 return ToFlatIndex(pos.x, pos.y, pos.z);
             }
 
+            public void ClearBlocks()
+            {
+                for (int i = 0; i < _blocks.Length; i++)
+                {
+                    Voxel block = _blocks[i];
+                    block.Type = BlockType.Air;
+                    _blocks[i] = block;
+                }
+            }
+
             public void Dispose()
             {
                 if (_blocks.IsCreated)
@@ -429,17 +439,10 @@ namespace VoxelEngine
         {
             foreach (var kv in _chunks)
             {
-                for (int i = 0; i < VoxelStatics.ChunkSize; i++)
+                if (kv.Value != null)
                 {
-                    for (int j = 0; j < VoxelStatics.ChunkSize; j++)
-                    {
-                        for (int k = 0; k < VoxelStatics.ChunkSize; k++)
-                        {
-                            kv.Value.SetBlock(i, j, k, BlockType.Air);
-                        }
-                    }
+                    kv.Value.ClearBlocks();
                 }
-
                 _dirtyChunks.Add(kv.Key);
             }
         }

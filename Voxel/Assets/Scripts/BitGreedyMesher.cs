@@ -48,15 +48,21 @@ namespace VoxelEngine
         bool[] _typeUsed = new bool[(int)BlockType.Max];
         ulong[] _planeMask = new ulong[(int)BlockType.Max * (VoxelStatics.ChunkSize + 2)];
 
-        ProfilerMarker AxisColMarker = new ProfilerMarker("BitGreedyMesher.AxisCol");
-        ProfilerMarker MaskMarker = new ProfilerMarker("BitGreedyMesher.BuildMask");
-        ProfilerMarker GreedyMarker = new ProfilerMarker("BitGreedyMesher.Greedy");
-        ProfilerMarker AllocMarker = new ProfilerMarker("BitGreedyMesher.Alloc");
+        static ProfilerMarker AxisColMarker = new ProfilerMarker("BitGreedyMesher.AxisCol");
+        static ProfilerMarker MaskMarker = new ProfilerMarker("BitGreedyMesher.BuildMask");
+        static ProfilerMarker GreedyMarker = new ProfilerMarker("BitGreedyMesher.Greedy");
+        static ProfilerMarker AllocMarker = new ProfilerMarker("BitGreedyMesher.Alloc");
+
         MeshBuildData BuildData = new MeshBuildData(2048 * 4, 2048 * 6);
 
         public MeshBuildData BuildMesh(ChunkMeshInput meshInput)
         {
             BuildData.Clear();
+
+            if (meshInput.Blocks.IsCreated == false)
+            {
+                return BuildData;
+            }
 
             using (AxisColMarker.Auto())
             {

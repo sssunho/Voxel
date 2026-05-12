@@ -173,8 +173,6 @@ namespace VoxelEngine
 
         static readonly int[] FaceTriangles = { 0, 1, 2, 0, 2, 3 };
 
-        static bool[] _greedyMaskBuffer = new bool[VoxelStatics.ChunkSize * VoxelStatics.ChunkSize];
-
         public static void AddQuad(Axis normal, Axis u, Axis v, bool isNegativeNormal, Vector3 position, int width, int height, MeshBuildData meshBuildData, BlockType type)
         {
             int startIndex = meshBuildData.Vertices.Count;
@@ -327,6 +325,9 @@ namespace VoxelEngine
         Mesh _mesh;
 
         static readonly ProfilerMarker RebuildMeshMarker = new("ChunkRenderer.RebuildMesh");
+        static readonly ProfilerMarker ApplyMeshMarker = new ProfilerMarker("ChunkRenderer.ApplyMesh");
+        static readonly ProfilerMarker BuildMeshMarker = new ProfilerMarker("ChunkRenderer.BuildMesh");
+        static readonly ProfilerMarker CreateMeshInputMarker = new ProfilerMarker("ChunkRenderer.CreateMeshInput");
 
         void Awake()
         {
@@ -382,22 +383,29 @@ namespace VoxelEngine
             }
         }
 
-        ProfilerMarker ApplyMeshMarker = new ProfilerMarker("ChunkRenderer.ApplyMesh");
-
         private void ApplyMeshData(MeshBuildData meshBuildData)
         {
             using (ApplyMeshMarker.Auto())
             {
-                DestroyOldMesh();
+                ClearOldMesh();
 
-                _mesh = CreateMesh(meshBuildData);
+                if (_mesh == null)
+                {
+                    _mesh = new Mesh();
+                }
+
+                _mesh.SetVertices(meshBuildData.Vertices);
+                _mesh.SetTriangles(meshBuildData.Triangles, 0);
+                _mesh.SetUVs(0, meshBuildData.UVs);
+                _mesh.SetUVs(1, meshBuildData.UV2s);
+                _mesh.RecalculateNormals();
 
                 if (_mesh)
                 {
                     _mesh.name = $"ChunkMesh_{gameObject.name}";
                 }
 
-                if (_mesh.vertices.Length > 0 && _mesh.triangles.Length > 0)
+                if (_mesh.vertexCount > 0 && _mesh.GetIndexCount(0) > 0)
                 {
                     if (_meshFilter)
                     {
@@ -412,8 +420,6 @@ namespace VoxelEngine
             }
         }
 
-        ProfilerMarker BuildMeshMarker = new ProfilerMarker("ChunkRenderer.BuildMesh");
-
         private MeshBuildData CreateMeshBuildData(ChunkMeshInput input, BitGreedyMesher mesher)
         {
             MeshBuildData meshBuildData = default;
@@ -427,8 +433,6 @@ namespace VoxelEngine
             return meshBuildData;
         }
 
-        ProfilerMarker CreateMeshInputMarker = new ProfilerMarker("ChunkRenderer.CreateMeshInput");
-
         private ChunkMeshInput CreateChunkMeshInput()
         {
             using (CreateMeshInputMarker.Auto())
@@ -439,21 +443,7 @@ namespace VoxelEngine
             }
         }
 
-        Mesh CreateMesh(MeshBuildData meshBuildData)
-        {
-            Mesh mesh = new Mesh();
-
-            mesh.SetVertices(meshBuildData.Vertices);
-            mesh.SetTriangles(meshBuildData.Triangles, 0);
-            mesh.SetUVs(0, meshBuildData.UVs);
-            mesh.SetUVs(1, meshBuildData.UV2s);
-
-            mesh.RecalculateNormals();
-
-            return mesh;
-        }
-
-        void DestroyOldMesh()
+        void ClearOldMesh()
         {
             if (_mesh)
             {
