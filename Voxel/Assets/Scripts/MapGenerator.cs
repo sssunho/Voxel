@@ -52,6 +52,7 @@ namespace VoxelEngine
 
         IEnumerator StartDelayCoroutine()
         {
+            // unity profiler에 첫 프레임이 안잡히는 버그가 있다. 그냥 적당히 기다려 줘서 profiler에 잡히게 해주자
             int delayFrameCount = 5;
             while (delayFrameCount > 0)
             {
