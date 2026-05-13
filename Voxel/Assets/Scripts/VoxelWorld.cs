@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Jobs;
+using Unity.VisualScripting;
 using UnityEngine;
 
 namespace VoxelEngine
@@ -320,16 +321,17 @@ namespace VoxelEngine
             return chunk;
         }
 
-        public void ConsumeDirtyChunks(List<Vector3Int> outList)
+        public void GetDirtyChunks(HashSet<Vector3Int> outChunks)
         {
-            if (outList == null)
+            if (outChunks != null)
             {
-                return;
+                outChunks.UnionWith(_dirtyChunks);
             }
+        }
 
-            outList.Clear();
-            outList.AddRange(_dirtyChunks);
-            _dirtyChunks.Clear();
+        public void UnsetChunkDirty(Vector3Int chunkCoord)
+        {
+            _dirtyChunks.Remove(chunkCoord);
         }
 
         public bool IsSolid(Vector3Int worldPos)
@@ -469,9 +471,14 @@ namespace VoxelEngine
             return new Vector3Int(Mod(x , VoxelStatics.ChunkSize), Mod(y, VoxelStatics.ChunkSize), Mod(z, VoxelStatics.ChunkSize));
         }
 
-        public static Vector3 ChunkToWorldOrigin(Vector3Int pos)
+        public static Vector3 ChunkToWorldOrigin(Vector3Int chunkCoord)
         {
-            return new Vector3(pos.x * VoxelStatics.ChunkSize, pos.y * VoxelStatics.ChunkSize, pos.z * VoxelStatics.ChunkSize);
+            return new Vector3(chunkCoord.x * VoxelStatics.ChunkSize, chunkCoord.y * VoxelStatics.ChunkSize, chunkCoord.z * VoxelStatics.ChunkSize);
+        }
+
+        public static Vector3 ChunkToWorldCenter(Vector3Int chunkCoord)
+        {
+            return ChunkToWorldOrigin(chunkCoord) + (VoxelStatics.ChunkSize / 2) * Vector3.one;
         }
 
         public static Vector3Int WorldToVoxelCoord(Vector3 pos)

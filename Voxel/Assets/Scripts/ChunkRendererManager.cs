@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using System.Linq;
+using Unity.Profiling;
 using UnityEngine;
 
 namespace VoxelEngine
@@ -7,9 +9,12 @@ namespace VoxelEngine
     {
         readonly Dictionary<Vector3Int, ChunkRenderer> _renderers = new();
         readonly List<ChunkRenderer> _deactivateRenderers = new();
-        readonly List<Vector3Int> _dirtyChunks = new();
-        readonly Queue<Vector3Int> _rebuildQueue = new();
+        readonly HashSet<Vector3Int> _dirtyChunks = new();
+
+        readonly List<Vector3Int> _rebuildQueue = new();
         readonly HashSet<Vector3Int> _queuedChunks = new();
+
+        readonly HashSet<Vector3Int> _loadedChunks = new();
 
         [SerializeField] VoxelWorldBehaviour _worldBehaviour;
         [SerializeField] ChunkRenderer _chunkRendererPrefab;
@@ -17,6 +22,42 @@ namespace VoxelEngine
 
         VoxelWorld _world;
         BitGreedyMesher _mesher;
+
+        public void OnChunkLoaded(HashSet<Vector3Int> chunks)
+        {
+            foreach (Vector3Int chunkCoord in chunks)
+            {
+                _loadedChunks.Add(chunkCoord);
+                if (_queuedChunks.Add(chunkCoord))
+                {
+                    _rebuildQueue.Add(chunkCoord);
+                }
+            }
+        }
+
+        public void OnChunkUnloaded(HashSet<Vector3Int> chunks)
+        {
+            foreach (Vector3Int chunkCoord in chunks)
+            {
+                _loadedChunks.Remove(chunkCoord);
+                _queuedChunks.Remove(chunkCoord);
+                _rebuildQueue.Remove(chunkCoord);
+
+                if (_renderers.TryGetValue(chunkCoord, out ChunkRenderer renderer))
+                {
+                    PushRenderer(renderer);
+                    _renderers.Remove(chunkCoord);
+                }
+            }
+        }
+
+        public void SetChunkFade(Vector3Int chunkCoord, float fade)
+        {
+            if (_renderers.TryGetValue(chunkCoord, out ChunkRenderer renderer))
+            {
+                renderer.SetFade(fade);
+            }
+        }
 
         void Awake()
         {
@@ -36,37 +77,51 @@ namespace VoxelEngine
             }
         }
 
+        ProfilerMarker a = new ProfilerMarker("crm.a");
+        ProfilerMarker b = new ProfilerMarker("crm.b");
+
         void LateUpdate()
         {
             if (_world != null)
             {
-                PerformanceMeasure.Clear();
-
-                EnqueueDirtyChunks();
-                ProcessRebuildQueue();
-            }
-        }
-
-        private void EnqueueDirtyChunks()
-        {
-            _world.ConsumeDirtyChunks(_dirtyChunks);
-
-            foreach (Vector3Int chunkCoord in _dirtyChunks)
-            {
-                if (_queuedChunks.Add(chunkCoord))
+                using (a.Auto())
                 {
-                    _rebuildQueue.Enqueue(chunkCoord);
+                    EnqueueDirtyChunks();
+                }
+                using (b.Auto())
+                {
+                    ProcessRebuildQueue();
                 }
             }
         }
 
-        private void ProcessRebuildQueue()
+        void EnqueueDirtyChunks()
+        {
+            _dirtyChunks.Clear();
+            _world.GetDirtyChunks(_dirtyChunks);
+
+            foreach (Vector3Int chunkCoord in _loadedChunks)
+            {
+                if (_dirtyChunks.Contains(chunkCoord))
+                {
+                    if (_queuedChunks.Add(chunkCoord))
+                    {
+                        _rebuildQueue.Add(chunkCoord);
+                    }
+
+                    _world.UnsetChunkDirty(chunkCoord);
+                }
+            }
+        }
+
+        void ProcessRebuildQueue()
         {
             int rebuildCount = Mathf.Min(_maxRebuildPerFrame, _rebuildQueue.Count);
 
             for (int i = 0; i < rebuildCount; i++)
             {
-                Vector3Int chunkCoord = _rebuildQueue.Dequeue();
+                Vector3Int chunkCoord = _rebuildQueue[0];
+                _rebuildQueue.RemoveAt(0);
                 _queuedChunks.Remove(chunkCoord);
 
                 if (_renderers.TryGetValue(chunkCoord, out ChunkRenderer renderer))
@@ -89,27 +144,27 @@ namespace VoxelEngine
         {
             Debug.Assert(_chunkRendererPrefab != null, $"chunk renderer manager don't have renderer prefab");
 
-            ChunkRenderer newRenderer = Instantiate(_chunkRendererPrefab);
-            if (newRenderer)
+            if (_deactivateRenderers.Count == 0)
             {
-                newRenderer.transform.parent = transform;
+                ChunkRenderer newRenderer = Instantiate(_chunkRendererPrefab, transform);
+                return newRenderer;
             }
-            return newRenderer;
 
-            // 풀링을 할거라면 아래 해제
-            //if (_deactivateRenderers.Count == 0)
-            //{
-            //    ChunkRenderer newRenderer = Instantiate(_chunkRendererPrefab);
-            //    if (newRenderer)
-            //    {
-            //        newRenderer.transform.parent = transform;
-            //    }
-            //    return newRenderer;
-            //}
+            ChunkRenderer renderer = _deactivateRenderers[_deactivateRenderers.Count - 1];
+            _deactivateRenderers.RemoveAt(_deactivateRenderers.Count - 1);
+            renderer.SetVisible(true);
+            return renderer;
+        }
 
-            //ChunkRenderer renderer = _deactivateRenderers[_deactivateRenderers.Count - 1];
-            //_deactivateRenderers.RemoveAt(_deactivateRenderers.Count - 1);
-            //return renderer;
+        void PushRenderer(ChunkRenderer renderer)
+        {
+            if (renderer)
+            {
+                _deactivateRenderers.Add(renderer);
+                renderer.SetVisible(false);
+                renderer.gameObject.name = "deactivated";
+                renderer.ClearMesh();
+            }
         }
 
         void OnDestroy()

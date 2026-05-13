@@ -323,37 +323,15 @@ namespace VoxelEngine
         MeshRenderer _meshRenderer;
         MeshCollider _meshCollider;
         Mesh _mesh;
+        MaterialPropertyBlock _mpb;
+        float _fade = 1.0f;
+
+        static readonly int FadePropertyID = Shader.PropertyToID("_Fade");
 
         static readonly ProfilerMarker RebuildMeshMarker = new("ChunkRenderer.RebuildMesh");
         static readonly ProfilerMarker ApplyMeshMarker = new ProfilerMarker("ChunkRenderer.ApplyMesh");
         static readonly ProfilerMarker BuildMeshMarker = new ProfilerMarker("ChunkRenderer.BuildMesh");
         static readonly ProfilerMarker CreateMeshInputMarker = new ProfilerMarker("ChunkRenderer.CreateMeshInput");
-
-        void Awake()
-        {
-            _meshFilter = GetComponent<MeshFilter>();
-            _meshRenderer = GetComponent<MeshRenderer>();
-            _meshCollider = GetComponent<MeshCollider>();
-
-            if (_meshRenderer)
-            {
-                _meshRenderer.sharedMaterial = _material;
-            }
-
-            if (_meshCollider)
-            {
-                _meshCollider.cookingOptions = MeshColliderCookingOptions.None;
-            }
-        }
-
-        void OnDestroy()
-        {
-            if (_mesh)
-            {
-                Destroy(_mesh);
-                _mesh = null;
-            }
-        }
 
         public void Initialize(VoxelWorld world, Vector3Int chunkCoord)
         {
@@ -383,11 +361,82 @@ namespace VoxelEngine
             }
         }
 
-        private void ApplyMeshData(MeshBuildData meshBuildData)
+        public void ClearMesh()
+        {
+            if (_mesh)
+            {
+                if (_meshCollider)
+                {
+                    _meshCollider.sharedMesh = null;
+                }
+
+                _meshFilter.sharedMesh = null;
+                _mesh.Clear();
+            }
+        }
+
+        public void SetFade(float fade)
+        {
+            if (fade == _fade)
+            {
+                return;
+            }
+
+            _fade = fade;
+            _mpb ??= new MaterialPropertyBlock();
+
+            if (_meshRenderer)
+            {
+                _meshRenderer.GetPropertyBlock(_mpb);
+                _mpb.SetFloat(FadePropertyID, fade);
+                _meshRenderer.SetPropertyBlock(_mpb);
+            }
+        }
+
+        public void SetVisible(bool visible)
+        {
+            if (_meshRenderer)
+            {
+                _meshRenderer.enabled = visible;
+            }
+
+            if (_meshCollider)
+            {
+                _meshCollider.enabled = visible;
+            }
+        }
+
+        void Awake()
+        {
+            _meshFilter = GetComponent<MeshFilter>();
+            _meshRenderer = GetComponent<MeshRenderer>();
+            _meshCollider = GetComponent<MeshCollider>();
+
+            if (_meshRenderer)
+            {
+                _meshRenderer.sharedMaterial = _material;
+            }
+
+            if (_meshCollider)
+            {
+                _meshCollider.cookingOptions = MeshColliderCookingOptions.None;
+            }
+        }
+
+        void OnDestroy()
+        {
+            if (_mesh)
+            {
+                Destroy(_mesh);
+                _mesh = null;
+            }
+        }
+
+        void ApplyMeshData(MeshBuildData meshBuildData)
         {
             using (ApplyMeshMarker.Auto())
             {
-                ClearOldMesh();
+                ClearMesh();
 
                 if (_mesh == null)
                 {
@@ -420,7 +469,7 @@ namespace VoxelEngine
             }
         }
 
-        private MeshBuildData CreateMeshBuildData(ChunkMeshInput input, BitGreedyMesher mesher)
+        MeshBuildData CreateMeshBuildData(ChunkMeshInput input, BitGreedyMesher mesher)
         {
             MeshBuildData meshBuildData = default;
             using (BuildMeshMarker.Auto())
@@ -433,27 +482,13 @@ namespace VoxelEngine
             return meshBuildData;
         }
 
-        private ChunkMeshInput CreateChunkMeshInput()
+        ChunkMeshInput CreateChunkMeshInput()
         {
             using (CreateMeshInputMarker.Auto())
             {
                 ChunkMeshInput input;
                 input = _world.CreateChunkMeshInput(_chunkCoord);
                 return input;
-            }
-        }
-
-        void ClearOldMesh()
-        {
-            if (_mesh)
-            {
-                if (_meshCollider)
-                {
-                    _meshCollider.sharedMesh = null;
-                }
-
-                _meshFilter.sharedMesh = null;
-                _mesh.Clear();
             }
         }
     }
