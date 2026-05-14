@@ -28,9 +28,12 @@ namespace VoxelEngine
             foreach (Vector3Int chunkCoord in chunks)
             {
                 _loadedChunks.Add(chunkCoord);
-                if (_queuedChunks.Add(chunkCoord))
+                if (_world != null && _world.HasChunk(chunkCoord))
                 {
-                    _rebuildQueue.Add(chunkCoord);
+                    if (_queuedChunks.Add(chunkCoord))
+                    {
+                        _rebuildQueue.Add(chunkCoord);
+                    }
                 }
             }
         }
@@ -77,21 +80,12 @@ namespace VoxelEngine
             }
         }
 
-        ProfilerMarker a = new ProfilerMarker("crm.a");
-        ProfilerMarker b = new ProfilerMarker("crm.b");
-
         void LateUpdate()
         {
             if (_world != null)
             {
-                using (a.Auto())
-                {
-                    EnqueueDirtyChunks();
-                }
-                using (b.Auto())
-                {
-                    ProcessRebuildQueue();
-                }
+                EnqueueDirtyChunks();
+                ProcessRebuildQueue();
             }
         }
 

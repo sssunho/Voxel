@@ -321,6 +321,11 @@ namespace VoxelEngine
             return chunk;
         }
 
+        public bool HasChunk(Vector3Int chunkCoord)
+        {
+            return _chunks.ContainsKey(chunkCoord);
+        }
+
         public void GetDirtyChunks(HashSet<Vector3Int> outChunks)
         {
             if (outChunks != null)
