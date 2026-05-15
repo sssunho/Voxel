@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using Unity.Mathematics;
 using UnityEngine;
 
 namespace VoxelEngine
@@ -140,10 +141,24 @@ namespace VoxelEngine
             {
                 for (int z = -size; z < size; z++)
                 {
-                    float height = _perlinNoiseHeight * Mathf.PerlinNoise(x * _perlinNoiseScale, z * _perlinNoiseScale);
-                    for (int y = 0; y < height; y++)
+                    int surfaceHeight = (int)(_perlinNoiseHeight *
+                        Mathf.PerlinNoise(x * _perlinNoiseScale, z * _perlinNoiseScale));
+
+                    for (int y = 0; y < surfaceHeight; y++)
                     {
-                        _world.SetBlock(x, y, z, BlockType.Dirt);
+                        float cave = noise.snoise(new float3(
+                            x * 0.04f,
+                            y * 0.04f,
+                            z * 0.04f));
+
+                        if (cave > 0.3f) continue; 
+
+                        BlockType type;
+                        if (y == surfaceHeight - 1) type = BlockType.Grass;
+                        else if (y >= surfaceHeight - 4) type = BlockType.Dirt;
+                        else type = BlockType.Stone;
+
+                        _world.SetBlock(x, y, z, type);
                     }
                 }
             }

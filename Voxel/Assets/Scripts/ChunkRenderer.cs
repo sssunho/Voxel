@@ -298,6 +298,9 @@ namespace VoxelEngine
                 case BlockType.Dirt:
                     return new Vector2(0, 0);
 
+                case BlockType.Grass:
+                    return new Vector2(1, 0);
+
                 case BlockType.Wood:
                     return new Vector2(2, 0);
 
@@ -463,7 +466,7 @@ namespace VoxelEngine
 
                     if (_meshCollider)
                     {
-                        _meshCollider.sharedMesh = _mesh;
+                        //_meshCollider.sharedMesh = _mesh;
                     }
                 }
             }

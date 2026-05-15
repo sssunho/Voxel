@@ -14,6 +14,7 @@ namespace VoxelEngine
     {
         Air = 0,
         Dirt,
+        Grass,
         Stone,
         Wood,
 
