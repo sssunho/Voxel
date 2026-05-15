@@ -39,6 +39,59 @@ namespace VoxelEngine
             }
         }
 
+        static readonly Vector3[,] FaceVertices = new Vector3[6, 4]
+        {                   
+            // left               
+            {
+                new Vector3(0, 0, 0),
+                new Vector3(0, 0, 1),
+                new Vector3(0, 1, 1),
+                new Vector3(0, 1, 0),
+            },                    
+                                  
+            // right              
+            {
+                new Vector3(1, 0, 1),
+                new Vector3(1, 0, 0),
+                new Vector3(1, 1, 0),
+                new Vector3(1, 1, 1),
+            },                   
+                                  
+            // down               
+            {
+                new Vector3(0, 0, 0),
+                new Vector3(1, 0, 0),
+                new Vector3(1, 0, 1),
+                new Vector3(0, 0, 1),
+            },
+                               
+            // up                 
+            {
+                new Vector3(0, 1, 1),
+                new Vector3(1, 1, 1),
+                new Vector3(1, 1, 0),
+                new Vector3(0, 1, 0),
+            },       
+
+            // back
+            {
+                new Vector3(1, 0, 0),
+                new Vector3(0, 0, 0),
+                new Vector3(0, 1, 0),
+                new Vector3(1, 1, 0),
+            },
+
+            // forward
+            {
+                new Vector3(0, 0, 1),
+                new Vector3(1, 0, 1),
+                new Vector3(1, 1, 1),
+                new Vector3(0, 1, 1)
+            },
+        };
+
+        static readonly int[] FaceTriangles = { 0, 1, 2, 0, 2, 3 };
+
         NativeArray<ulong> _axisColX = new NativeArray<ulong>((VoxelStatics.ChunkSize + 2) * (VoxelStatics.ChunkSize + 2), Allocator.Persistent);
         NativeArray<ulong> _axisColY = new NativeArray<ulong>((VoxelStatics.ChunkSize + 2) * (VoxelStatics.ChunkSize + 2), Allocator.Persistent);
         NativeArray<ulong> _axisColZ = new NativeArray<ulong>((VoxelStatics.ChunkSize + 2) * (VoxelStatics.ChunkSize + 2), Allocator.Persistent);
@@ -53,15 +106,13 @@ namespace VoxelEngine
         static ProfilerMarker GreedyMarker = new ProfilerMarker("BitGreedyMesher.Greedy");
         static ProfilerMarker AllocMarker = new ProfilerMarker("BitGreedyMesher.Alloc");
 
-        MeshBuildData BuildData = new MeshBuildData(2048 * 4, 2048 * 6);
-
-        public MeshBuildData BuildMesh(ChunkMeshInput meshInput)
+        public void BuildMesh(ChunkMeshInput meshInput, MeshBuildData buildData)
         {
-            BuildData.Clear();
+            buildData.Clear();
 
             if (meshInput.Blocks.IsCreated == false)
             {
-                return BuildData;
+                return;
             }
 
             using (AxisColMarker.Auto())
@@ -78,11 +129,9 @@ namespace VoxelEngine
             {
                 for (int i = 0; i < PlaneDesc.BitPlaneDescs.Length; i++)
                 {
-                    GreedyMeshPlane(meshInput, PlaneDesc.BitPlaneDescs[i], BuildData);
+                    GreedyMeshPlane(meshInput, PlaneDesc.BitPlaneDescs[i], buildData);
                 }
             }
-
-            return BuildData;
         }
 
         void CreateAxisCol(ChunkMeshInput meshInput)
@@ -314,7 +363,7 @@ namespace VoxelEngine
                     break;
             }
 
-            MeshBuilder.AddQuad(desc.Normal, desc.U, desc.V, desc.IsNegative, local, sizeU, sizeV, meshBuildData, type);
+            AddQuad(desc.Normal, desc.U, desc.V, desc.IsNegative, local, sizeU, sizeV, meshBuildData, type);
         }
 
         public void Dispose()
@@ -332,6 +381,145 @@ namespace VoxelEngine
             if (_axisColZ.IsCreated)
             {
                 _axisColZ.Dispose();
+            }
+        }
+
+        public static void AddQuad(Axis normal, Axis u, Axis v, bool isNegativeNormal, Vector3 position, int width, int height, MeshBuildData meshBuildData, BlockType type)
+        {
+            int startIndex = meshBuildData.Vertices.Length;
+
+            Direction normalDirection = GetDirectionFromFaceNormal(normal, isNegativeNormal);
+            Vector2 tile = GetBlockTileCoord(type);
+
+            for (int i = 0; i < 4; i++)
+            {
+                Vector3 vertex = FaceVertices[(int)normalDirection, i];
+
+                if (u == Axis.X)
+                {
+                    vertex.x *= width;
+                }
+                else if (u == Axis.Y)
+                {
+                    vertex.y *= width;
+                }
+                else
+                {
+                    vertex.z *= width;
+                }
+
+                if (v == Axis.X)
+                {
+                    vertex.x *= height;
+                }
+                else if (v == Axis.Y)
+                {
+                    vertex.y *= height;
+                }
+                else
+                {
+                    vertex.z *= height;
+                }
+
+                meshBuildData.Vertices.Add(position + vertex);
+
+                float uvU = 0f;
+                float uvV = 0f;
+
+                if (u == Axis.X)
+                {
+                    uvU = vertex.x;
+                }
+                else if (u == Axis.Y)
+                {
+                    uvU = vertex.y;
+                }
+                else
+                {
+                    uvU = vertex.z;
+                }
+
+                if (v == Axis.X)
+                {
+                    uvV = vertex.x;
+                }
+                else if (v == Axis.Y)
+                {
+                    uvV = vertex.y;
+                }
+                else
+                {
+                    uvV = vertex.z;
+                }
+
+                meshBuildData.UVs.Add(new Vector2(uvU, uvV));
+
+                meshBuildData.UV2s.Add(tile);
+            }
+
+            for (int i = 0; i < 6; i++)
+            {
+                meshBuildData.Triangles.Add(startIndex + FaceTriangles[i]);
+            }
+        }
+
+        static Direction GetDirectionFromFaceNormal(Axis axis, bool isNegative)
+        {
+            switch (axis)
+            {
+                case Axis.X:
+                    if (isNegative)
+                    {
+                        return Direction.Left;
+                    }
+                    else
+                    {
+                        return Direction.Right;
+                    }
+
+                case Axis.Y:
+                    if (isNegative)
+                    {
+                        return Direction.Down;
+                    }
+                    else
+                    {
+                        return Direction.Up;
+                    }
+
+                case Axis.Z:
+                    if (isNegative)
+                    {
+                        return Direction.Back;
+                    }
+                    else
+                    {
+                        return Direction.Forward;
+                    }
+
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(axis), axis, null);
+            }
+        }
+
+        static Vector2 GetBlockTileCoord(BlockType type)
+        {
+            switch (type)
+            {
+                case BlockType.Dirt:
+                    return new Vector2(0, 0);
+
+                case BlockType.Grass:
+                    return new Vector2(1, 0);
+
+                case BlockType.Wood:
+                    return new Vector2(2, 0);
+
+                case BlockType.Stone:
+                    return new Vector2(3, 0);
+
+                default:
+                    return new Vector2(0, 0);
             }
         }
     }

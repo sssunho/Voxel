@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 using Unity.Profiling;
+using Unity.Collections;
 
 namespace VoxelEngine
 {
@@ -12,27 +13,65 @@ namespace VoxelEngine
         Z = 2,
     }
 
-    public struct MeshBuildData
+    public struct MeshBuildData : IDisposable
     {
-        public List<Vector3> Vertices;
-        public List<int> Triangles;
-        public List<Vector2> UVs;
-        public List<Vector2> UV2s;
+        public NativeList<Vector3> Vertices;
+        public NativeList<int> Triangles;
+        public NativeList<Vector2> UVs;
+        public NativeList<Vector2> UV2s;
 
         public MeshBuildData(int vertexCapacity, int triangleCapacity)
         {
-            Vertices = new List<Vector3>(vertexCapacity);
-            Triangles = new List<int>(triangleCapacity);
-            UVs = new List<Vector2>(vertexCapacity);
-            UV2s = new List<Vector2>(vertexCapacity);
+            Vertices = new NativeList<Vector3>(vertexCapacity, Allocator.Persistent);
+            Triangles = new NativeList<int>(triangleCapacity, Allocator.Persistent);
+            UVs = new NativeList<Vector2>(vertexCapacity, Allocator.Persistent);
+            UV2s = new NativeList<Vector2>(vertexCapacity, Allocator.Persistent);
         }
 
         public void Clear()
         {
-            Vertices.Clear();
-            Triangles.Clear();
-            UVs.Clear();
-            UV2s.Clear();
+            if (Vertices.IsCreated)
+            {
+                Vertices.Clear();
+            }
+            
+            if (Triangles.IsCreated)
+            {
+                Triangles.Clear();
+            }
+
+            if (UVs.IsCreated)
+            {
+                UVs.Clear();
+            }
+
+            if (UV2s.IsCreated)
+            {
+                UV2s.Clear();
+            }
+        }
+
+        public void Dispose()
+        {
+            if (Vertices.IsCreated)
+            {
+                Vertices.Dispose();
+            }
+
+            if (Triangles.IsCreated)
+            {
+                Triangles.Dispose();
+            }
+
+            if (UVs.IsCreated)
+            {
+                UVs.Dispose();
+            }
+
+            if (UV2s.IsCreated)
+            {
+                UV2s.Dispose();
+            }
         }
     }
 
@@ -118,201 +157,6 @@ namespace VoxelEngine
         }
     }
 
-    public static class MeshBuilder
-    {
-        static readonly Vector3[,] FaceVertices = new Vector3[6, 4]
-        {                   
-            // left               
-            {
-                new Vector3(0, 0, 0),
-                new Vector3(0, 0, 1),
-                new Vector3(0, 1, 1),
-                new Vector3(0, 1, 0),
-            },                    
-                                  
-            // right              
-            {
-                new Vector3(1, 0, 1),
-                new Vector3(1, 0, 0),
-                new Vector3(1, 1, 0),
-                new Vector3(1, 1, 1),
-            },                   
-                                  
-            // down               
-            {
-                new Vector3(0, 0, 0),
-                new Vector3(1, 0, 0),
-                new Vector3(1, 0, 1),
-                new Vector3(0, 0, 1),
-            },
-                               
-            // up                 
-            {
-                new Vector3(0, 1, 1),
-                new Vector3(1, 1, 1),
-                new Vector3(1, 1, 0),
-                new Vector3(0, 1, 0),
-            },       
-
-            // back
-            {
-                new Vector3(1, 0, 0),
-                new Vector3(0, 0, 0),
-                new Vector3(0, 1, 0),
-                new Vector3(1, 1, 0),
-            },
-
-            // forward
-            {
-                new Vector3(0, 0, 1),
-                new Vector3(1, 0, 1),
-                new Vector3(1, 1, 1),
-                new Vector3(0, 1, 1)
-            },
-        };
-
-        static readonly int[] FaceTriangles = { 0, 1, 2, 0, 2, 3 };
-
-        public static void AddQuad(Axis normal, Axis u, Axis v, bool isNegativeNormal, Vector3 position, int width, int height, MeshBuildData meshBuildData, BlockType type)
-        {
-            int startIndex = meshBuildData.Vertices.Count;
-
-            Direction normalDirection = GetDirectionFromFaceNormal(normal, isNegativeNormal);
-            Vector2 tile = GetBlockTileCoord(type);
-
-            for (int i = 0; i < 4; i++)
-            {
-                Vector3 vertex = FaceVertices[(int)normalDirection, i];
-
-                if (u == Axis.X)
-                {
-                    vertex.x *= width;
-                }
-                else if (u == Axis.Y)
-                {
-                    vertex.y *= width;
-                }
-                else
-                {
-                    vertex.z *= width;
-                }
-
-                if (v == Axis.X)
-                {
-                    vertex.x *= height;
-                }
-                else if (v == Axis.Y)
-                {
-                    vertex.y *= height;
-                }
-                else
-                {
-                    vertex.z *= height;
-                }
-
-                meshBuildData.Vertices.Add(position + vertex);
-
-                float uvU = 0f;
-                float uvV = 0f;
-
-                if (u == Axis.X)
-                {
-                    uvU = vertex.x;
-                }
-                else if (u == Axis.Y)
-                {
-                    uvU = vertex.y;
-                }
-                else
-                {
-                    uvU = vertex.z;
-                }
-
-                if (v == Axis.X)
-                {
-                    uvV = vertex.x;
-                }
-                else if (v == Axis.Y)
-                {
-                    uvV = vertex.y;
-                }
-                else
-                {
-                    uvV = vertex.z;
-                }
-
-                meshBuildData.UVs.Add(new Vector2(uvU, uvV));
-
-                meshBuildData.UV2s.Add(tile);
-            }
-
-            for (int i = 0; i < 6; i++)
-            {
-                meshBuildData.Triangles.Add(startIndex + FaceTriangles[i]);
-            }
-        }
-
-        static Direction GetDirectionFromFaceNormal(Axis axis, bool isNegative)
-        {
-            switch (axis)
-            {
-                case Axis.X:
-                    if (isNegative)
-                    {
-                        return Direction.Left;
-                    }
-                    else
-                    {
-                        return Direction.Right;
-                    }
-
-                case Axis.Y:
-                    if (isNegative)
-                    {
-                        return Direction.Down;
-                    }
-                    else
-                    {
-                        return Direction.Up;
-                    }
-
-                case Axis.Z:
-                    if (isNegative)
-                    {
-                        return Direction.Back;
-                    }
-                    else
-                    {
-                        return Direction.Forward;
-                    }
-
-                default:
-                    throw new ArgumentOutOfRangeException(nameof(axis), axis, null);
-            }
-        }
-
-        static Vector2 GetBlockTileCoord(BlockType type)
-        {
-            switch(type)
-            {
-                case BlockType.Dirt:
-                    return new Vector2(0, 0);
-
-                case BlockType.Grass:
-                    return new Vector2(1, 0);
-
-                case BlockType.Wood:
-                    return new Vector2(2, 0);
-
-                case BlockType.Stone:
-                    return new Vector2(3, 0);
-
-                default:
-                    return new Vector2(0, 0);
-            }
-        }
-    }
-
     [RequireComponent(typeof(MeshFilter))]
     [RequireComponent(typeof(MeshRenderer))]
     [RequireComponent(typeof(MeshCollider))]
@@ -342,7 +186,7 @@ namespace VoxelEngine
             _world = world;
         }
 
-        public void RebuildMesh(BitGreedyMesher mesher)
+        public void RebuildMesh(BitGreedyMesher mesher, MeshBuildData buildData)
         {
             using (RebuildMeshMarker.Auto())
             {
@@ -355,8 +199,8 @@ namespace VoxelEngine
 
                 using (ChunkMeshInput input = CreateChunkMeshInput())
                 {
-                    MeshBuildData meshBuildData = CreateMeshBuildData(input, mesher);
-                    ApplyMeshData(meshBuildData);
+                    CreateMeshBuildData(input, mesher, buildData);
+                    ApplyMeshData(buildData);
                 }
 
                 // 아래 로그는 가비지가 꽤 많이 생긴다. 필요할 때만 풀자
@@ -446,10 +290,10 @@ namespace VoxelEngine
                     _mesh = new Mesh();
                 }
 
-                _mesh.SetVertices(meshBuildData.Vertices);
-                _mesh.SetTriangles(meshBuildData.Triangles, 0);
-                _mesh.SetUVs(0, meshBuildData.UVs);
-                _mesh.SetUVs(1, meshBuildData.UV2s);
+                _mesh.SetVertices(meshBuildData.Vertices.AsArray());
+                _mesh.SetIndices(meshBuildData.Triangles.AsArray(), MeshTopology.Triangles, 0);
+                _mesh.SetUVs(0, meshBuildData.UVs.AsArray());
+                _mesh.SetUVs(1, meshBuildData.UV2s.AsArray());
                 _mesh.RecalculateNormals();
 
                 if (_mesh)
@@ -472,17 +316,15 @@ namespace VoxelEngine
             }
         }
 
-        MeshBuildData CreateMeshBuildData(ChunkMeshInput input, BitGreedyMesher mesher)
+        void CreateMeshBuildData(ChunkMeshInput input, BitGreedyMesher mesher, MeshBuildData meshBuildData)
         {
-            MeshBuildData meshBuildData = default;
             using (BuildMeshMarker.Auto())
             {
                 if (mesher != null)
                 {
-                    meshBuildData = mesher.BuildMesh(input);
+                    mesher.BuildMesh(input, meshBuildData);
                 }
             }
-            return meshBuildData;
         }
 
         ChunkMeshInput CreateChunkMeshInput()

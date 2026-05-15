@@ -22,6 +22,7 @@ namespace VoxelEngine
 
         VoxelWorld _world;
         BitGreedyMesher _mesher;
+        MeshBuildData _buildData;
 
         public void OnChunkLoaded(HashSet<Vector3Int> chunks)
         {
@@ -65,6 +66,7 @@ namespace VoxelEngine
         void Awake()
         {
             _mesher = new();
+            _buildData = new MeshBuildData(2048 * 4, 2048 * 6);
         }
 
         void Start()
@@ -120,7 +122,7 @@ namespace VoxelEngine
 
                 if (_renderers.TryGetValue(chunkCoord, out ChunkRenderer renderer))
                 {
-                    renderer.RebuildMesh(_mesher);
+                    renderer.RebuildMesh(_mesher, _buildData);
                     continue;
                 }
 
@@ -128,7 +130,7 @@ namespace VoxelEngine
                 newRenderer.transform.position = VoxelWorld.ChunkToWorldOrigin(chunkCoord);
                 newRenderer.name = $"Chunk({chunkCoord})";
                 newRenderer.Initialize(_world, chunkCoord);
-                newRenderer.RebuildMesh(_mesher);
+                newRenderer.RebuildMesh(_mesher, _buildData);
 
                 _renderers.Add(chunkCoord, newRenderer);
             }
@@ -168,6 +170,8 @@ namespace VoxelEngine
                 _mesher.Dispose();
                 _mesher = null;
             }
+
+            _buildData.Dispose();
         }
     }
 
