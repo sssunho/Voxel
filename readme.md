@@ -6,14 +6,6 @@
 [![C#](https://img.shields.io/badge/C%23-239120?logo=csharp&logoColor=white)](https://docs.microsoft.com/en-us/dotnet/csharp/)
 [![Burst](https://img.shields.io/badge/Burst_Compiler-enabled-blue)](https://docs.unity3d.com/Packages/com.unity.burst@latest)
 
----
-
-## 데모
-
-> *(플레이 영상 GIF 또는 스크린샷 삽입 권장)*
-
----
-
 ## 프로젝트 개요
 
 마인크래프트 스타일의 복셀 월드를 렌더링하는 엔진입니다.  
@@ -172,9 +164,3 @@ void PushRenderer(ChunkRenderer renderer)
 - Unity Burst 1.8+
 - Unity Collections 1.4+
 - Unity Mathematics 1.2+
-
----
-
-## 관련 링크
-
-- [게임플레이 영상 (차원소녀 Chrono Quest)](https://youtu.be/LZnPH_YcvDU)
