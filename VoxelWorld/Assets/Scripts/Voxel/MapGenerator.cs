@@ -42,8 +42,6 @@ namespace VoxelEngine
 
         [SerializeField] VoxelWorldBehaviour _worldBehaviour;
 
-        [SerializeField] bool _useRandomSeed = true;
-
         [SerializeField] PerlinNoiseLayer[] _perlinNoises;
 
         // Inspector에서 각 구간 경계값 조절 가능

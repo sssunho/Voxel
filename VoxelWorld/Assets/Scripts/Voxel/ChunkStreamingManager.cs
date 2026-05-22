@@ -46,11 +46,10 @@ namespace  VoxelEngine
         }
 
         HashSet<Vector3Int> _loadedChunks = new HashSet<Vector3Int>();
-
         HashSet<Vector3Int> _desiredChunks = new HashSet<Vector3Int>();
-
         HashSet<Vector3Int> _newLoaded = new HashSet<Vector3Int>();
         HashSet<Vector3Int> _newUnloaded = new HashSet<Vector3Int>();
+        HashSet<Vector3Int> _fading = new HashSet<Vector3Int>();
 
         Vector3Int _playerChunkPos;
 
@@ -72,7 +71,7 @@ namespace  VoxelEngine
                 {
                     _playerChunkPos = currentPlayerChunkPos;
 
-                    UpdateChunksWithRange(_loadDistance, _loadedChunks, _newLoaded, _newUnloaded);
+                    UpdateChunksWithRange(_loadDistance);
 
                     if (_crm)
                     {
@@ -85,13 +84,10 @@ namespace  VoxelEngine
                 }
             }
 
-            using (UpdateFadeMarker.Auto())
-            {
-                UpdateFade();
-            }
+            UpdateFade();
         }
 
-        void UpdateChunksWithRange(int range, HashSet<Vector3Int> inSet, HashSet<Vector3Int> newInSet, HashSet<Vector3Int> newOutSet)
+        void UpdateChunksWithRange(int range)
         {
             _desiredChunks.Clear();
 
@@ -107,33 +103,35 @@ namespace  VoxelEngine
                 }
             }
             
-            foreach (var chunkCood in inSet)
+            foreach (var chunkCood in _loadedChunks)
             {
                 if (!_desiredChunks.Contains(chunkCood))
                 {
-                    newOutSet.Add(chunkCood);
+                    _newUnloaded.Add(chunkCood);
+                    _fading.Remove(chunkCood);
                 }
             }
 
             foreach (var chunkCood in _desiredChunks)
             {
-                if (!inSet.Contains(chunkCood))
+                if (!_loadedChunks.Contains(chunkCood))
                 {
-                    newInSet.Add(chunkCood);
+                    _newLoaded.Add(chunkCood);
+                    _fading.Add(chunkCood);
                 }
             }
 
-            foreach (var chunkCoord in newInSet)
+            foreach (var chunkCoord in _newLoaded)
             {
-                if (inSet.Contains(chunkCoord) == false)
+                if (_loadedChunks.Contains(chunkCoord) == false)
                 {
-                    inSet.Add(chunkCoord);
+                    _loadedChunks.Add(chunkCoord);
                 }
             }
 
-            foreach (var chunkCoord in newOutSet)
+            foreach (var chunkCoord in _newUnloaded)
             {
-                inSet.Remove(chunkCoord);
+                _loadedChunks.Remove(chunkCoord);
             }
         }
 
