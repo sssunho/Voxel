@@ -56,12 +56,20 @@ namespace  VoxelEngine
         static readonly ProfilerMarker CheckRangeMarker = new ProfilerMarker("ChunkStreamingManager.CheckRange");
         static readonly ProfilerMarker UpdateFadeMarker = new ProfilerMarker("ChunkStreamingManager.UpdateFade");
 
+        void Start()
+        {
+            Shader.SetGlobalFloat("_FadeStartDistance", _visibleDistance * VoxelStatics.ChunkSize);
+            Shader.SetGlobalFloat("_FadeEndDistance", _loadDistance * VoxelStatics.ChunkSize);
+        }
+
         void Update()
         {
             if (_target == null || _crm == null)
             {
                 return;
             }
+
+            Shader.SetGlobalVector("_PlayerPosition", _target.position);
 
             Vector3Int currentPlayerChunkPos = VoxelWorld.WorldToChunkCoord(_target.position);
 
@@ -83,8 +91,6 @@ namespace  VoxelEngine
                     _newUnloaded.Clear();
                 }
             }
-
-            UpdateFade();
         }
 
         void UpdateChunksWithRange(int range)

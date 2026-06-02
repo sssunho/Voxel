@@ -76,16 +76,6 @@ namespace VoxelEngine
 
     public struct PlaneDesc
     {
-        public static readonly PlaneDesc[] PlaneDescs =
-        {
-            new PlaneDesc(Direction.Left, Axis.Z, Axis.Y, Axis.X, true, VoxelStatics.ChunkSize),
-            new PlaneDesc(Direction.Right, Axis.Y, Axis.Z, Axis.X, false, VoxelStatics.ChunkSize),
-            new PlaneDesc(Direction.Down, Axis.X, Axis.Z, Axis.Y, true, VoxelStatics.ChunkSize),
-            new PlaneDesc(Direction.Up, Axis.Z, Axis.X, Axis.Y, false, VoxelStatics.ChunkSize),
-            new PlaneDesc(Direction.Back, Axis.Y, Axis.X, Axis.Z, true, VoxelStatics.ChunkSize),
-            new PlaneDesc(Direction.Forward, Axis.X, Axis.Y, Axis.Z, false, VoxelStatics.ChunkSize),
-        };
-
         public static readonly PlaneDesc[] BitPlaneDescs =
         {
             new PlaneDesc(Direction.Left,  Axis.Y, Axis.Z, Axis.X, true,  VoxelStatics.ChunkSize),

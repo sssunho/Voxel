@@ -1,27 +1,35 @@
 using UnityEngine;
 
+[RequireComponent (typeof(Animator))]
 [RequireComponent(typeof(CharacterController))]
 public class BaseCharacter : MonoBehaviour
 {
     public readonly float Gravity = -9.81f;
 
-    [SerializeField] float _speed = 5.0f;
+    [SerializeField] float _walkSpeed = 4.0f;
+    [SerializeField] float _sprintSpeed = 6.0f;
     [SerializeField] float _rotationSpeed = 5.0f;
     [SerializeField] float _fallMultiplier = 2.5f;  // 하강 가속
     [SerializeField] float _lowJumpMultiplier = 2.0f;  // 짧은 점프 시 상승 감속
 
     CharacterController _characterController;
+    Animator _animator;
     Vector3 _velocity = Vector3.zero;
     bool _moveInputThisFrame = false;
     bool _jumpButtonHeld;
+    bool _isWalking = false;
 
     void Awake()
     {
         _characterController = GetComponent<CharacterController>();
+        _animator = GetComponent<Animator>();
     }
 
     void Update()
     {
+        UpdateAnimatorParams();
+        ApplyGravity();
+
         if (!_moveInputThisFrame)
         {
             _velocity.x = Mathf.Lerp(_velocity.x, 0, Time.deltaTime * 10f);
@@ -45,11 +53,11 @@ public class BaseCharacter : MonoBehaviour
         {
             _velocity.y = -2f;
         }
-
         _velocity.y += Gravity * Time.deltaTime;
 
         _characterController.Move(_velocity * Time.deltaTime);
     }
+
     void ApplyGravity()
     {
         if (_velocity.y < 0)
@@ -78,7 +86,9 @@ public class BaseCharacter : MonoBehaviour
         _moveInputThisFrame = true;
 
         float lerpSpeed = 10.0f;
-        Vector3 targetVelocity = move * _speed;
+        float speed = _isWalking ? _walkSpeed : _sprintSpeed;
+
+        Vector3 targetVelocity = move * speed;
 
         _velocity.x = Mathf.Lerp(_velocity.x, targetVelocity.x, Time.deltaTime * lerpSpeed);
         _velocity.z = Mathf.Lerp(_velocity.z, targetVelocity.z, Time.deltaTime * lerpSpeed);
@@ -95,5 +105,12 @@ public class BaseCharacter : MonoBehaviour
     public void SetJumpButtonHeld(bool held)
     {
         _jumpButtonHeld = held;
+    }
+
+    void UpdateAnimatorParams()
+    {
+        float speed = Mathf.Sqrt(_velocity.x * _velocity.x + _velocity.z * _velocity.z);
+        float norm = Mathf.Clamp01((speed - _walkSpeed) / (_sprintSpeed - _walkSpeed));
+        _animator.SetFloat("NormalizedSpeed", norm);
     }
 }

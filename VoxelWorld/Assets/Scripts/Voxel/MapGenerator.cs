@@ -1,10 +1,9 @@
-using JetBrains.Annotations;
 using System;
 using System.Collections;
-using System.Net;
+using System.Collections.Generic;
 using Unity.Mathematics;
-using UnityEditor.ShaderGraph.Internal;
 using UnityEngine;
+using UnityEngine.LightTransport;
 
 namespace VoxelEngine
 {
@@ -51,6 +50,15 @@ namespace VoxelEngine
         [SerializeField, Range(0f, 1f)] float _h2 = 0.15f;  // dist=0.75 (완→급 전환, 해안선 상단)
         [SerializeField, Range(0f, 1f)] float _h3 = 0.04f;  // dist=0.8  (해안선 하단)
         [SerializeField, Range(0f, 1f)] float _h4 = 0.03f;  // dist=1.0  외곽 평탄
+
+        [Header("Block type")]
+        [SerializeField, Range(0, 255)] int _minCoastHeight = 5;
+
+        [Header("Tree Generation")]
+        [SerializeField] GameObject _treePrefab;
+        [SerializeField] int _treeCount = 150;
+        [SerializeField] float _treeMinDist = 0.6f;
+        [SerializeField] float _treeMaxDist = 0.8f;
 
         VoxelWorld _world;
 
@@ -105,6 +113,8 @@ namespace VoxelEngine
                 default:
                     break;
             }
+
+            PlaceTrees();
         }
 
         void GenerateFloor()
@@ -174,7 +184,7 @@ namespace VoxelEngine
                         if (cave > 0.3f && y > 28) continue;
 
                         BlockType type;
-                        if (surfaceHeight > 8)
+                        if (surfaceHeight > _minCoastHeight)
                         {
                             if (y == surfaceHeight - 1) type = BlockType.Grass;
                             else if (y >= surfaceHeight - 4) type = BlockType.Dirt;
@@ -209,7 +219,7 @@ namespace VoxelEngine
             }
 
             // 가중치 정규화
-            return totalWeight > 0f ? totalHeight / totalWeight * totalWeight : 0f;
+            return totalWeight > 0f ? totalHeight / totalWeight : 0f;
         }
 
         float GetRadialFalloff(float d)
@@ -235,6 +245,54 @@ namespace VoxelEngine
                 return Mathf.Lerp(_h3, _h4, Mathf.SmoothStep(0f, 1f, t));
             }
         }
-    }
+        void PlaceTrees()
+        {
+            if (_treePrefab == null || _world == null) return;
 
+            int size = (int)_mapSize / 2;
+            int placed = 0;
+            int maxAttempts = _treeCount * 10;
+            int attempts = 0;
+            HashSet<Vector2Int> placedPositions = new HashSet<Vector2Int>();
+
+            while (placed < _treeCount && attempts < maxAttempts)
+            {
+                attempts++;
+
+                // falloff 범위 내 랜덤 각도 + 거리 샘플링
+                float angle = UnityEngine.Random.Range(0f, Mathf.PI * 2f);
+                float dist = UnityEngine.Random.Range(_treeMinDist, _treeMaxDist);
+
+                int x = Mathf.RoundToInt(Mathf.Cos(angle) * dist * size);
+                int z = Mathf.RoundToInt(Mathf.Sin(angle) * dist * size);
+                
+                if (placedPositions.Contains(new Vector2Int(x, z)))
+                {
+                    continue;
+                }
+
+                placedPositions.Add(new Vector2Int(x, z));
+
+                // 해당 위치 표면 높이 탐색
+                int surfaceY = -1;
+                for (int y = (int)_mapSize; y >= 0; y--)
+                {
+                    if (_world.GetBlockType(x, y, z) == BlockType.Grass)
+                    {
+                        surfaceY = y;
+                        break;
+                    }
+                }
+
+                if (surfaceY < 0) continue;
+
+                // Grass 블록 위에 배치
+                Vector3 pos = new Vector3(x + 0.5f, surfaceY + 1, z + 0.5f);
+                Instantiate(_treePrefab, pos,
+                    Quaternion.Euler(0, UnityEngine.Random.Range(0f, 360f), 0));
+                placed++;
+            }
+        }
+
+    }
 }

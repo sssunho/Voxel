@@ -394,27 +394,27 @@ namespace VoxelEngine
                 switch (type)
                 {
                     case BlockType.Dirt:
-                        return new Vector2(7, 4);
+                        return new Vector2(1, 0);
 
                     case BlockType.Grass:
                         if (normal == Direction.Up)
                         {
-                            return new Vector2(6, 8);
+                            return new Vector2(0, 0);
                         }
                         else if (normal == Direction.Down)
                         {
-                            return new Vector2(7, 4);
+                            return new Vector2(2, 0);
                         }
                         else
                         {
-                            return new Vector2(7, 5);
+                            return new Vector2(3, 1);
                         }
 
                     case BlockType.Sand:
-                        return new Vector2(3, 3);
+                        return new Vector2(3, 0);
 
                     case BlockType.Stone:
-                        return new Vector2(3, 0);
+                        return new Vector2(2, 0);
 
                     default:
                         return new Vector2(0, 0);
